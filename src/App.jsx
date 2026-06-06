@@ -6,6 +6,7 @@ import {
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
   Store, Divide, Eye, Paperclip, ImagePlus, FileText, Landmark,
+  ArrowLeftRight, Building2, Zap,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -32,6 +33,9 @@ const PAYMENT_METHODS = [
   { id: "card", label: "Card", icon: CreditCard },
   { id: "upi", label: "UPI", icon: Smartphone },
   { id: "cheque", label: "Cheque", icon: FileText },
+  { id: "neft", label: "NEFT", icon: ArrowLeftRight },
+  { id: "rtgs", label: "RTGS", icon: Building2 },
+  { id: "imps", label: "IMPS", icon: Zap },
   { id: "loan", label: "Loan", icon: Landmark },
   { id: "other", label: "Other", icon: MoreHorizontal },
 ];
