@@ -921,7 +921,7 @@ function Dashboard({ expenses, categories, myName }) {
 
 const methodMeta = (id) => PAYMENT_METHODS.find((m) => m.id === id) || PAYMENT_METHODS[3];
 
-function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete, onViewPhotos }) {
+function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete, onViewPhotos, onFilter }) {
   const [confirm, setConfirm] = useState(false);
   const M = methodMeta(expense.method);
   const dateLabel = new Date(expense.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -934,11 +934,11 @@ function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete, onViewPhotos 
         <div className="min-w-0 flex-1">
           <p className="font-medium text-slate-800 truncate">{expense.description || cat?.name || "Expense"}</p>
           <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 flex-wrap">
-            <span>{dateLabel}</span><span className="text-slate-300">·</span>
-            <span className="flex items-center gap-1"><M.icon className="w-3 h-3" />{M.label}</span><span className="text-slate-300">·</span>
-            <span>{cat?.name}</span>
-            {notMe && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md font-medium"><Users className="w-3 h-3" />{expense.paidBy}</span></>)}
-            {expense.paidTo && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded-md font-medium"><Store className="w-3 h-3" />{expense.paidTo}</span></>)}
+            <button onClick={() => onFilter({ from: expense.date, to: expense.date })} className="hover:text-slate-700 hover:underline" title="Show this day only">{dateLabel}</button><span className="text-slate-300">·</span>
+            <button onClick={() => onFilter({ method: expense.method })} className="flex items-center gap-1 hover:text-slate-700 hover:underline" title={`Filter: ${M.label}`}><M.icon className="w-3 h-3" />{M.label}</button><span className="text-slate-300">·</span>
+            <button onClick={() => onFilter({ category: expense.category })} className="hover:text-slate-700 hover:underline" title={`Filter: ${cat?.name}`}>{cat?.name}</button>
+            <span className="text-slate-300">·</span><button onClick={() => onFilter({ person: expense.paidBy || "Me" })} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-medium ${notMe ? "text-amber-600 bg-amber-50 hover:bg-amber-100" : "text-slate-500 bg-slate-100 hover:bg-slate-200"}`} title={`Filter: paid by ${expense.paidBy}`}><Users className="w-3 h-3" />{expense.paidBy}</button>
+            {expense.paidTo && (<><span className="text-slate-300">·</span><button onClick={() => onFilter({ payee: expense.paidTo })} className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded-md font-medium hover:bg-sky-100" title={`Filter: paid to ${expense.paidTo}`}><Store className="w-3 h-3" />{expense.paidTo}</button></>)}
             {splitCount > 0 && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-md font-medium" title={Object.entries(expense.split).map(([n, v]) => `${n}: ${fmtINR(v)}`).join(", ")}><Divide className="w-3 h-3" />÷{splitCount}</span></>)}
             {expense.attachments?.length > 0 && (<><span className="text-slate-300">·</span><button onClick={onViewPhotos} className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md font-medium hover:bg-emerald-100"><Paperclip className="w-3 h-3" />{expense.attachments.length}</button></>)}
           </div>
@@ -1098,7 +1098,8 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
         ) : filtered.map((e) => editId === e.id ? (
           <EditRow key={e.id} expense={e} categories={categories} people={peopleInData} payees={payeesInData} onCancel={() => setEditId(null)} onSave={(u, files, removed) => { onUpdate(u, files, removed); setEditId(null); }} />
         ) : (
-          <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} canEdit={canEdit} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} onViewPhotos={() => setViewPaths(e.attachments)} />
+          <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} canEdit={canEdit} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} onViewPhotos={() => setViewPaths(e.attachments)}
+            onFilter={(patch) => { setFilters((f) => ({ ...f, ...patch })); setShowFilters(true); }} />
         ))}
       </div>
       {viewPaths && <AttachmentViewer paths={viewPaths} onClose={() => setViewPaths(null)} />}
