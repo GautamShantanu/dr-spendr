@@ -82,6 +82,31 @@ const MAX_PHOTOS = 2;
 const ROLE_LABELS = { owner: "Owner", manager: "Manager", viewer: "Viewer", payee: "Payee", member: "Manager" };
 const normalizeRole = (r) => (r === "member" ? "manager" : r || "manager");
 
+/* Last grapheme of a string — lets users type/paste any emoji from their keyboard. */
+const lastGrapheme = (s) => {
+  if (!s) return "";
+  try {
+    const seg = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s)];
+    return seg.length ? seg[seg.length - 1].segment : "";
+  } catch {
+    const a = Array.from(s);
+    return a.length ? a[a.length - 1] : "";
+  }
+};
+
+/* Small input for typing any emoji (phone emoji keyboard, paste, etc.). */
+function EmojiInput({ value, onChange }) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => { const g = lastGrapheme(e.target.value.trim()); if (g) onChange(g); }}
+      onFocus={(e) => e.target.select()}
+      aria-label="Category emoji — type any emoji"
+      className="w-12 h-9 rounded-lg border border-slate-200 bg-white text-center text-lg outline-none focus:border-slate-400"
+    />
+  );
+}
+
 /* ============================== primitives ============================== */
 
 const Card = ({ children, className = "" }) => (
@@ -1128,10 +1153,12 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           {categories.map((c) => editCatId === c.id ? (
             <div key={c.id} className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-2.5">
               <div className="flex gap-2 items-center">
+                <EmojiInput value={c.emoji} onChange={(em) => updateCat(c.id, { emoji: em })} />
                 <input value={c.name} onChange={(e) => updateCat(c.id, { name: e.target.value })} className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:border-slate-400" />
                 <input type="color" value={c.color} onChange={(e) => updateCat(c.id, { color: e.target.value })} className="w-10 h-9 rounded-lg border border-slate-200 cursor-pointer" />
                 <button onClick={() => setEditCatId(null)} className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm flex items-center gap-1"><Check className="w-4 h-4" /></button>
               </div>
+              <p className="text-[11px] text-slate-400">Type any emoji in the box (📱 emoji keyboard works), or pick one below.</p>
               <div className="flex flex-wrap gap-1">{EMOJI_CHOICES.map((em) => <button key={em} onClick={() => updateCat(c.id, { emoji: em })} className={`w-8 h-8 rounded-lg text-base hover:bg-slate-200 ${c.emoji === em ? "bg-slate-200 ring-1 ring-slate-400" : ""}`}>{em}</button>)}</div>
             </div>
           ) : (
@@ -1147,11 +1174,12 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         {canEdit && <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
           <p className="text-xs font-medium text-slate-500 mb-2">Add category</p>
           <div className="flex gap-2 items-center mb-2">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: newCat.color + "1F" }}>{newCat.emoji}</div>
+            <EmojiInput value={newCat.emoji} onChange={(em) => setNewCat({ ...newCat, emoji: em })} />
             <input value={newCat.name} onChange={(e) => setNewCat({ ...newCat, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && addCat()} placeholder="Category name" className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:border-slate-400" />
             <input type="color" value={newCat.color} onChange={(e) => setNewCat({ ...newCat, color: e.target.value })} className="w-10 h-9 rounded-lg border border-slate-200 cursor-pointer" />
             <button onClick={addCat} className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 flex items-center gap-1"><Plus className="w-4 h-4" /></button>
           </div>
+          <p className="text-[11px] text-slate-400 mb-1.5">Type any emoji in the box (📱 emoji keyboard works), or pick one below.</p>
           <div className="flex flex-wrap gap-1">{EMOJI_CHOICES.map((em) => <button key={em} onClick={() => setNewCat({ ...newCat, emoji: em })} className={`w-8 h-8 rounded-lg text-base hover:bg-slate-200 ${newCat.emoji === em ? "bg-slate-200 ring-1 ring-slate-400" : ""}`}>{em}</button>)}</div>
         </div>}
       </Card>
