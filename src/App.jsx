@@ -988,11 +988,14 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
 
 /* ============================== settings ============================== */
 
-function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, myName, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, isOwner, canEdit, onSignOut, userEmail }) {
+function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, myName, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, onMergePeople, isOwner, canEdit, onSignOut, userEmail }) {
   const [newCat, setNewCat] = useState({ name: "", emoji: "🏷️", color: PALETTE[0] });
   const [editCatId, setEditCatId] = useState(null);
   const [newPerson, setNewPerson] = useState("");
   const [newPayee, setNewPayee] = useState("");
+  const [mergeFrom, setMergeFrom] = useState("");
+  const [mergeTo, setMergeTo] = useState("");
+  const [merging, setMerging] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName);
   const fileRef = useRef(null);
@@ -1073,6 +1076,31 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} placeholder="Add a person (partner, roommate…)" className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400" />
           <button onClick={addPerson} className="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Add</button>
         </div>}
+
+        {/* merge duplicate people (e.g. a hand-typed name + an invited account) */}
+        {canEdit && people.length >= 2 && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-xs font-medium text-slate-500 mb-1.5">Merge two people</p>
+            <p className="text-[11px] text-slate-400 mb-2">If the same person appears twice — e.g. a name you typed and an invited account — merge them. All their "paid by" entries and split shares in this bucket move to the kept name.</p>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <select value={mergeFrom} onChange={(e) => setMergeFrom(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
+                <option value="">Merge this…</option>
+                {people.filter((p) => p !== mergeTo).map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <span className="text-xs text-slate-400 text-center shrink-0">into</span>
+              <select value={mergeTo} onChange={(e) => setMergeTo(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
+                <option value="">…this (kept)</option>
+                {people.filter((p) => p !== mergeFrom).map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <button disabled={!mergeFrom || !mergeTo || merging}
+                onClick={async () => { setMerging(true); await onMergePeople(mergeFrom, mergeTo); setMerging(false); setMergeFrom(""); setMergeTo(""); }}
+                className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-40 flex items-center justify-center gap-1.5 shrink-0">
+                {merging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Merge
+              </button>
+            </div>
+            {mergeFrom && mergeTo && <p className="text-[11px] text-amber-600 mt-1.5">"{mergeFrom}" disappears; everything they paid (and their split shares) becomes "{mergeTo}". This rewrites this bucket's history and can't be undone in one click.</p>}
+          </div>
+        )}
       </Card>
 
       {/* payees */}
@@ -1342,6 +1370,24 @@ export default function App() {
     setExpenses([]);
     flash("All expenses cleared.");
   };
+  const mergePeople = async (from, to) => {
+    if (!from || !to || from === to) return;
+    // move all "paid by" entries in this bucket
+    const { error } = await supabase.from("expenses").update({ paid_by: to }).eq("bucket_id", selectedId).eq("paid_by", from);
+    if (error) { flash("Couldn't merge."); console.error(error); return; }
+    // fold their split shares into the kept name
+    const affected = expenses.filter((e) => e.split && Object.prototype.hasOwnProperty.call(e.split, from));
+    for (const e of affected) {
+      const s = { ...e.split };
+      s[to] = Math.round(((Number(s[to]) || 0) + (Number(s[from]) || 0)) * 100) / 100;
+      delete s[from];
+      const { error: se } = await supabase.from("expenses").update({ split: s }).eq("id", e.id);
+      if (se) console.error(se);
+    }
+    setPeople((prev) => prev.filter((p) => p !== from));
+    await loadBucketData(selectedId);
+    flash(`Merged ${from} into ${to}.`);
+  };
 
   /* ---- name + backup ---- */
   const changeName = async (name) => {
@@ -1436,7 +1482,7 @@ export default function App() {
                 payees={payees} setPayees={setPayees}
                 expenses={expenses} bucketName={currentBucket?.name || "this bucket"} myName={myName}
                 displayName={myName} onChangeName={changeName} userEmail={user.email}
-                onExport={exportData} onImport={importData} onClearBucket={clearBucket} isOwner={isOwner} canEdit={canEdit} onSignOut={signOut}
+                onExport={exportData} onImport={importData} onClearBucket={clearBucket} onMergePeople={mergePeople} isOwner={isOwner} canEdit={canEdit} onSignOut={signOut}
               />
             )}
           </>
