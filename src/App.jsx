@@ -5,7 +5,7 @@ import {
   Calendar, CreditCard, Loader2, ArrowUpDown, Tag, Banknote, Smartphone,
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
-  Store, Divide, Eye, Paperclip, ImagePlus,
+  Store, Divide, Eye, Paperclip, ImagePlus, FileText, Landmark,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -31,6 +31,8 @@ const PAYMENT_METHODS = [
   { id: "cash", label: "Cash", icon: Banknote },
   { id: "card", label: "Card", icon: CreditCard },
   { id: "upi", label: "UPI", icon: Smartphone },
+  { id: "cheque", label: "Cheque", icon: FileText },
+  { id: "loan", label: "Loan", icon: Landmark },
   { id: "other", label: "Other", icon: MoreHorizontal },
 ];
 const EMOJI_CHOICES = ["🍜","🍕","☕","🛒","🚕","🚗","⛽","🏠","💡","📱","🛍️","👕","💊","🏥","🎬","🎮","🎵","✈️","🏨","🏝️","📦","🎁","💰","📚","🐶","💪","💅","🍻"];
@@ -919,7 +921,7 @@ function Dashboard({ expenses, categories, myName }) {
 
 /* ============================== transactions ============================== */
 
-const methodMeta = (id) => PAYMENT_METHODS.find((m) => m.id === id) || PAYMENT_METHODS[3];
+const methodMeta = (id) => PAYMENT_METHODS.find((m) => m.id === id) || PAYMENT_METHODS.find((m) => m.id === "other");
 
 function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete, onViewPhotos, onFilter }) {
   const [confirm, setConfirm] = useState(false);
