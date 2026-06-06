@@ -5,6 +5,7 @@ import {
   Calendar, CreditCard, Loader2, ArrowUpDown, Tag, Banknote, Smartphone,
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
+  Store, Divide, Eye,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -55,8 +56,12 @@ const monthLabel = (mk) => {
 
 const rowToExpense = (r) => ({
   id: r.id, amount: Number(r.amount), category: r.category, description: r.description || "",
-  date: r.date, method: r.method, paidBy: r.paid_by || "Me",
+  date: r.date, method: r.method, paidBy: r.paid_by || "Me", paidTo: r.paid_to || "",
+  split: r.split && typeof r.split === "object" && Object.keys(r.split).length ? r.split : null,
 });
+
+const ROLE_LABELS = { owner: "Owner", manager: "Manager", viewer: "Viewer", payee: "Payee", member: "Manager" };
+const normalizeRole = (r) => (r === "member" ? "manager" : r || "manager");
 
 /* ============================== primitives ============================== */
 
@@ -67,7 +72,7 @@ const Pill = ({ active, onClick, children }) => (
   <button onClick={onClick} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${active ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{children}</button>
 );
 
-function PaidByInput({ value, onChange, people, compact }) {
+function PaidByInput({ value, onChange, people, compact, placeholder = "Paid by", icon: Icon = Users }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -79,8 +84,8 @@ function PaidByInput({ value, onChange, people, compact }) {
   return (
     <div className="relative" ref={ref}>
       <div className="relative">
-        <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input value={value} onChange={(e) => { onChange(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="Paid by"
+        <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <input value={value} onChange={(e) => { onChange(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder={placeholder}
           className={`w-full pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 ${compact ? "py-2 text-sm" : "py-2.5"}`} />
       </div>
       {open && (matches.length > 0 || value) && (
@@ -261,10 +266,12 @@ function BucketSwitcher({ buckets, selectedId, onSelect, onNew, onManage, member
 
 /* ============================== manage bucket modal ============================== */
 
-function ManageBucketModal({ bucket, members, isOwner, myEmail, onClose, onRename, onInvite, onRemoveMember, onLeave, onDelete }) {
+function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete }) {
   const [name, setName] = useState(bucket.name);
   const [emoji, setEmoji] = useState(bucket.emoji || "💼");
   const [invite, setInvite] = useState("");
+  const [inviteRole, setInviteRole] = useState("manager");
+  const [invitePayee, setInvitePayee] = useState("");
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -272,8 +279,9 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, onClose, onRenam
     const e = invite.trim().toLowerCase();
     setMsg("");
     if (!e || !e.includes("@")) { setMsg("Enter a valid email."); return; }
-    const res = await onInvite(e);
-    if (res?.error) setMsg(res.error); else { setInvite(""); setMsg(`Invited ${e}.`); }
+    if (inviteRole === "payee" && !invitePayee) { setMsg("Pick which payee they are."); return; }
+    const res = await onInvite(e, inviteRole, inviteRole === "payee" ? invitePayee : null);
+    if (res?.error) setMsg(res.error); else { setInvite(""); setMsg(`Invited ${e} as ${ROLE_LABELS[inviteRole].toLowerCase()}.`); }
   };
 
   return (
@@ -316,10 +324,21 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, onClose, onRenam
                   <span className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs flex items-center justify-center font-semibold shrink-0">{m.email.slice(0, 1).toUpperCase()}</span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm text-slate-700 truncate">{m.email}{m.email === myEmail ? " (you)" : ""}</span>
-                    <span className="text-[11px] text-slate-400 flex items-center gap-1">{m.role === "owner" && <Crown className="w-3 h-3 text-amber-500" />}{m.role}</span>
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                      {m.role === "owner" && <Crown className="w-3 h-3 text-amber-500" />}
+                      {normalizeRole(m.role) === "payee" && <Eye className="w-3 h-3 text-sky-500" />}
+                      {ROLE_LABELS[m.role] || m.role}{normalizeRole(m.role) === "payee" && m.payee_name ? ` · sees payments to ${m.payee_name}` : ""}
+                    </span>
                   </span>
                   {isOwner && m.role !== "owner" && (
-                    <button onClick={() => onRemoveMember(m)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50"><X className="w-4 h-4" /></button>
+                    <>
+                      <select value={normalizeRole(m.role)} onChange={(e) => onChangeRole(m, e.target.value)} className="text-xs px-1.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 outline-none">
+                        <option value="manager">Manager</option>
+                        <option value="viewer">Viewer</option>
+                        {normalizeRole(m.role) === "payee" && <option value="payee">Payee</option>}
+                      </select>
+                      <button onClick={() => onRemoveMember(m)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50"><X className="w-4 h-4" /></button>
+                    </>
                   )}
                 </div>
               ))}
@@ -338,6 +357,20 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, onClose, onRenam
                 </div>
                 <button onClick={doInvite} className="px-4 rounded-xl bg-emerald-600 text-white text-sm hover:bg-emerald-700">Invite</button>
               </div>
+              <div className="flex gap-2 mt-2">
+                <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
+                  <option value="manager">Manager — can add & edit expenses</option>
+                  <option value="viewer">Viewer — can see everything, edit nothing</option>
+                  <option value="payee">Payee — sees only payments made to them</option>
+                </select>
+                {inviteRole === "payee" && (
+                  <select value={invitePayee} onChange={(e) => setInvitePayee(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
+                    <option value="">Which payee?</option>
+                    {payees.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                )}
+              </div>
+              {inviteRole === "payee" && payees.length === 0 && <p className="text-[11px] text-amber-600 mt-1.5">Add payees first (Manage → Payees), then link the invite to one.</p>}
               {msg && <p className="text-xs text-slate-500 mt-1.5">{msg}</p>}
               <p className="text-[11px] text-slate-400 mt-1.5">They get access the moment they sign in with that email.</p>
             </div>
@@ -364,12 +397,61 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, onClose, onRenam
   );
 }
 
+/* ============================== split editor ============================== */
+
+function SplitEditor({ amount, people, shares, setShares }) {
+  const amt = parseFloat(amount) || 0;
+  const assigned = people.reduce((s, p) => s + (parseFloat(shares[p]) || 0), 0);
+  const left = Math.round((amt - assigned) * 100) / 100;
+  const splitEqually = () => {
+    if (!people.length || !amt) return;
+    const each = Math.floor((amt / people.length) * 100) / 100;
+    const first = Math.round((amt - each * (people.length - 1)) * 100) / 100;
+    setShares(Object.fromEntries(people.map((p, i) => [p, String(i === 0 ? first : each)])));
+  };
+  return (
+    <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Divide className="w-3.5 h-3.5" /> Split between</p>
+        <button type="button" onClick={splitEqually} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Split equally</button>
+      </div>
+      {people.length === 0 && <p className="text-xs text-slate-400">Add people in Manage → People first.</p>}
+      {people.map((p) => (
+        <div key={p} className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-[10px] flex items-center justify-center font-semibold shrink-0">{p.slice(0, 1).toUpperCase()}</span>
+          <span className="flex-1 text-sm text-slate-700 truncate">{p}</span>
+          <div className="relative w-28">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">₹</span>
+            <input inputMode="decimal" value={shares[p] || ""} onChange={(e) => setShares({ ...shares, [p]: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="0"
+              className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:border-slate-400 text-right" />
+          </div>
+        </div>
+      ))}
+      <p className={`text-xs text-right ${Math.abs(left) < 0.01 ? "text-emerald-600" : "text-amber-600"}`}>
+        {Math.abs(left) < 0.01 ? "Fully assigned ✓" : left > 0 ? `${fmtINR(left)} left to assign` : `${fmtINR(-left)} over the amount`}
+      </p>
+    </div>
+  );
+}
+
+const buildSplit = (shares, people, amt) => {
+  const s = {};
+  people.forEach((p) => { const v = parseFloat(shares[p]); if (v > 0) s[p] = Math.round(v * 100) / 100; });
+  const sum = Object.values(s).reduce((a, b) => a + b, 0);
+  if (!Object.keys(s).length) return { error: "Assign the split amounts first." };
+  if (Math.abs(sum - amt) > 0.01) return { error: "Split must add up to the amount." };
+  return { split: s };
+};
+
 /* ============================== quick add ============================== */
 
-function QuickAdd({ categories, people, defaultPaidBy, onAdd }) {
-  const blank = { amount: "", category: categories[0]?.id || "other", description: "", date: todayStr(), method: "upi", paidBy: defaultPaidBy };
+function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
+  const blank = { amount: "", category: categories[0]?.id || "other", description: "", date: todayStr(), method: "upi", paidBy: defaultPaidBy, paidTo: "" };
   const [f, setF] = useState(blank);
   const [expanded, setExpanded] = useState(false);
+  const [splitOn, setSplitOn] = useState(false);
+  const [shares, setShares] = useState({});
+  const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const amountRef = useRef(null);
 
@@ -378,9 +460,16 @@ function QuickAdd({ categories, people, defaultPaidBy, onAdd }) {
   const submit = async () => {
     const amt = parseFloat(f.amount);
     if (!amt || amt <= 0) { amountRef.current?.focus(); return; }
-    setBusy(true);
-    await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy });
+    let split = null;
+    if (splitOn) {
+      const res = buildSplit(shares, people, amt);
+      if (res.error) { setErr(res.error); return; }
+      split = res.split;
+    }
+    setErr(""); setBusy(true);
+    await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy, paidTo: f.paidTo.trim(), split });
     setBusy(false);
+    setSplitOn(false); setShares({});
     setF({ ...blank, category: f.category, paidBy: f.paidBy });
     amountRef.current?.focus();
   };
@@ -410,21 +499,30 @@ function QuickAdd({ categories, people, defaultPaidBy, onAdd }) {
         </button>
       </div>
       <button onClick={() => setExpanded((v) => !v)} className="mt-2.5 text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} /> {expanded ? "Less" : "Date, payment & who paid"}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} /> {expanded ? "Less" : "Date, payment, payee & split"}
       </button>
       {expanded && (
-        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm" />
+        <div className="mt-3 space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm" />
+            </div>
+            <div className="relative">
+              <select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} className="w-full appearance-none px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm pr-9">
+                {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+              <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
+            <PaidByInput value={f.paidBy} onChange={(v) => setF({ ...f, paidBy: v })} people={people} compact />
+            <PaidByInput value={f.paidTo} onChange={(v) => setF({ ...f, paidTo: v })} people={payees} compact placeholder="Paid to — vendor (optional)" icon={Store} />
           </div>
-          <div className="relative">
-            <select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} className="w-full appearance-none px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm pr-9">
-              {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-            <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-          </div>
-          <PaidByInput value={f.paidBy} onChange={(v) => setF({ ...f, paidBy: v })} people={people} compact />
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input type="checkbox" checked={splitOn} onChange={(e) => setSplitOn(e.target.checked)} className="w-4 h-4 rounded accent-slate-900" />
+            <Divide className="w-3.5 h-3.5 text-slate-400" /> Split this expense
+          </label>
+          {splitOn && <SplitEditor amount={f.amount} people={people} shares={shares} setShares={setShares} />}
+          {err && <p className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{err}</p>}
         </div>
       )}
     </Card>
@@ -457,6 +555,7 @@ function Stat({ label, value, sub, accent, icon: Icon, trend }) {
 function Dashboard({ expenses, categories, myName }) {
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const [pieScope, setPieScope] = useState("month");
+  const [payeeScopeAll, setPayeeScopeAll] = useState(true);
   const now = new Date();
   const thisMK = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -492,6 +591,27 @@ function Dashboard({ expenses, categories, myName }) {
   const paidList = Object.entries(paid).sort((a, b) => b[1] - a[1]);
   const paidGrand = paidList.reduce((s, [, v]) => s + v, 0);
   const myShare = (paid[myName] || 0) + (myName !== "Me" ? (paid["Me"] || 0) : 0);
+
+  /* paid to (payees/vendors) */
+  const pt2 = {};
+  (payeeScopeAll ? expenses : thisM).forEach((e) => { if (e.paidTo) pt2[e.paidTo] = (pt2[e.paidTo] || 0) + e.amount; });
+  const payeeList = Object.entries(pt2).sort((a, b) => b[1] - a[1]);
+  const payeeGrand = payeeList.reduce((s, [, v]) => s + v, 0);
+  const hasPayees = expenses.some((e) => e.paidTo);
+
+  /* balances from split expenses (all time): paid minus own share */
+  const bal = {};
+  expenses.forEach((e) => {
+    if (!e.split) return;
+    const payer = e.paidBy || "Me";
+    bal[payer] = bal[payer] || { paid: 0, share: 0 };
+    bal[payer].paid += e.amount;
+    Object.entries(e.split).forEach(([n, v]) => { bal[n] = bal[n] || { paid: 0, share: 0 }; bal[n].share += Number(v) || 0; });
+  });
+  const balances = Object.entries(bal)
+    .map(([n, x]) => ({ name: n, net: Math.round((x.paid - x.share) * 100) / 100 }))
+    .filter((b) => Math.abs(b.net) >= 0.01)
+    .sort((a, b) => b.net - a.net);
 
   if (expenses.length === 0) {
     return (
@@ -578,6 +698,58 @@ function Dashboard({ expenses, categories, myName }) {
         </Card>
       </div>
 
+      {(hasPayees || balances.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {hasPayees && (
+            <Card className="p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2"><Store className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Paid to</h3></div>
+                <div className="flex gap-1.5"><Pill active={!payeeScopeAll} onClick={() => setPayeeScopeAll(false)}>This month</Pill><Pill active={payeeScopeAll} onClick={() => setPayeeScopeAll(true)}>All time</Pill></div>
+              </div>
+              {payeeList.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No payee payments in this period.</p> : (
+                <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                  {payeeList.map(([payee, amt], i) => {
+                    const p = payeeGrand > 0 ? (amt / payeeGrand) * 100 : 0;
+                    const color = PALETTE[i % PALETTE.length];
+                    return (
+                      <div key={payee}>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                            <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold text-white" style={{ background: color }}>{payee.slice(0, 1).toUpperCase()}</span>
+                            {payee}
+                          </span>
+                          <span className="font-semibold text-slate-900">{fmtINR(amt)}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${p}%`, background: color }} /></div>
+                      </div>
+                    );
+                  })}
+                  <div className="pt-2 mt-1 border-t border-slate-100 text-xs text-slate-500 text-right">Total to payees: <strong className="text-slate-700">{fmtINR(payeeGrand)}</strong></div>
+                </div>
+              )}
+            </Card>
+          )}
+          {balances.length > 0 && (
+            <Card className="p-4 sm:p-5">
+              <div className="flex items-center gap-2 mb-3"><Divide className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Balances</h3><span className="text-xs text-slate-400">· from split expenses, all time</span></div>
+              <div className="space-y-2">
+                {balances.map((b) => (
+                  <div key={b.name} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-100 text-sm">
+                    <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold text-white ${b.net > 0 ? "bg-emerald-500" : "bg-rose-400"}`}>{b.name.slice(0, 1).toUpperCase()}</span>
+                      {b.name}{b.name === myName ? " (you)" : ""}
+                    </span>
+                    <span className={`font-semibold ${b.net > 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                      {b.net > 0 ? `gets back ${fmtINR(b.net)}` : `owes ${fmtINR(-b.net)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
       <Card className="p-4 sm:p-5">
         <h3 className="font-semibold text-slate-800 mb-3">Last 6 months</h3>
         <div className="h-56">
@@ -602,11 +774,12 @@ function Dashboard({ expenses, categories, myName }) {
 
 const methodMeta = (id) => PAYMENT_METHODS.find((m) => m.id === id) || PAYMENT_METHODS[3];
 
-function TxnRow({ expense, cat, myName, onEdit, onDelete }) {
+function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete }) {
   const [confirm, setConfirm] = useState(false);
   const M = methodMeta(expense.method);
   const dateLabel = new Date(expense.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const notMe = (expense.paidBy || "Me") !== myName && (expense.paidBy || "").toLowerCase() !== "me";
+  const splitCount = expense.split ? Object.keys(expense.split).length : 0;
   return (
     <Card className="p-3 sm:px-4 group hover:border-slate-300 transition-colors">
       <div className="flex items-center gap-3">
@@ -618,33 +791,46 @@ function TxnRow({ expense, cat, myName, onEdit, onDelete }) {
             <span className="flex items-center gap-1"><M.icon className="w-3 h-3" />{M.label}</span><span className="text-slate-300">·</span>
             <span>{cat?.name}</span>
             {notMe && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md font-medium"><Users className="w-3 h-3" />{expense.paidBy}</span></>)}
+            {expense.paidTo && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded-md font-medium"><Store className="w-3 h-3" />{expense.paidTo}</span></>)}
+            {splitCount > 0 && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-md font-medium" title={Object.entries(expense.split).map(([n, v]) => `${n}: ${fmtINR(v)}`).join(", ")}><Divide className="w-3 h-3" />÷{splitCount}</span></>)}
           </div>
         </div>
         <p className="font-semibold text-slate-900 shrink-0">{fmtINR(expense.amount)}</p>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {confirm ? (
-            <div className="flex items-center gap-1">
-              <button onClick={onDelete} className="p-1.5 rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Check className="w-4 h-4" /></button>
-              <button onClick={() => setConfirm(false)} className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"><X className="w-4 h-4" /></button>
-            </div>
-          ) : (
-            <>
-              <button onClick={onEdit} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => setConfirm(true)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-            </>
-          )}
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            {confirm ? (
+              <div className="flex items-center gap-1">
+                <button onClick={onDelete} className="p-1.5 rounded-lg bg-rose-500 text-white hover:bg-rose-600"><Check className="w-4 h-4" /></button>
+                <button onClick={() => setConfirm(false)} className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"><X className="w-4 h-4" /></button>
+              </div>
+            ) : (
+              <>
+                <button onClick={onEdit} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => setConfirm(true)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   );
 }
 
-function EditRow({ expense, categories, people, onSave, onCancel }) {
-  const [f, setF] = useState({ ...expense, amount: String(expense.amount) });
+function EditRow({ expense, categories, people, payees, onSave, onCancel }) {
+  const [f, setF] = useState({ ...expense, amount: String(expense.amount), paidTo: expense.paidTo || "" });
+  const [splitOn, setSplitOn] = useState(!!expense.split);
+  const [shares, setShares] = useState(expense.split ? Object.fromEntries(Object.entries(expense.split).map(([k, v]) => [k, String(v)])) : {});
+  const [err, setErr] = useState("");
   const save = () => {
     const amt = parseFloat(f.amount);
     if (!amt || amt <= 0) return;
-    onSave({ ...f, amount: amt, paidBy: (f.paidBy || "Me").trim() || "Me", description: f.description.trim() });
+    let split = null;
+    if (splitOn) {
+      const res = buildSplit(shares, people, amt);
+      if (res.error) { setErr(res.error); return; }
+      split = res.split;
+    }
+    onSave({ ...f, amount: amt, paidBy: (f.paidBy || "Me").trim() || "Me", paidTo: (f.paidTo || "").trim(), description: f.description.trim(), split });
   };
   return (
     <Card className="p-3 sm:p-4 border-slate-300 ring-2 ring-slate-100">
@@ -662,7 +848,14 @@ function EditRow({ expense, categories, people, onSave, onCancel }) {
           {PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
         </select>
         <PaidByInput value={f.paidBy} onChange={(v) => setF({ ...f, paidBy: v })} people={people} compact />
+        <PaidByInput value={f.paidTo} onChange={(v) => setF({ ...f, paidTo: v })} people={payees} compact placeholder="Paid to (optional)" icon={Store} />
       </div>
+      <label className="mt-2.5 flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+        <input type="checkbox" checked={splitOn} onChange={(e) => setSplitOn(e.target.checked)} className="w-4 h-4 rounded accent-slate-900" />
+        <Divide className="w-3.5 h-3.5 text-slate-400" /> Split this expense
+      </label>
+      {splitOn && <div className="mt-2"><SplitEditor amount={f.amount} people={people} shares={shares} setShares={setShares} /></div>}
+      {err && <p className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-2">{err}</p>}
       <div className="flex justify-end gap-2 mt-3">
         <button onClick={onCancel} className="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:bg-slate-100">Cancel</button>
         <button onClick={save} className="px-4 py-1.5 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1.5"><Check className="w-4 h-4" /> Save</button>
@@ -671,14 +864,14 @@ function EditRow({ expense, categories, people, onSave, onCancel }) {
   );
 }
 
-function Transactions({ expenses, categories, people, myName, onUpdate, onDelete }) {
+function Transactions({ expenses, categories, people, payees, myName, canEdit, onUpdate, onDelete }) {
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("date");
   const [sortDir, setSortDir] = useState("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [filters, setFilters] = useState({ from: "", to: "", category: "all", method: "all", person: "all" });
+  const [filters, setFilters] = useState({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" });
 
   const filtered = useMemo(() => {
     let list = expenses.filter((e) => {
@@ -687,10 +880,11 @@ function Transactions({ expenses, categories, people, myName, onUpdate, onDelete
       if (filters.category !== "all" && e.category !== filters.category) return false;
       if (filters.method !== "all" && e.method !== filters.method) return false;
       if (filters.person !== "all" && (e.paidBy || "Me") !== filters.person) return false;
+      if (filters.payee !== "all" && (e.paidTo || "") !== filters.payee) return false;
       if (search) {
         const q = search.toLowerCase();
         const cat = catMap[e.category]?.name.toLowerCase() || "";
-        if (!e.description.toLowerCase().includes(q) && !cat.includes(q) && !(e.paidBy || "").toLowerCase().includes(q)) return false;
+        if (!e.description.toLowerCase().includes(q) && !cat.includes(q) && !(e.paidBy || "").toLowerCase().includes(q) && !(e.paidTo || "").toLowerCase().includes(q)) return false;
       }
       return true;
     });
@@ -704,6 +898,7 @@ function Transactions({ expenses, categories, people, myName, onUpdate, onDelete
 
   const total = filtered.reduce((s, e) => s + e.amount, 0);
   const peopleInData = useMemo(() => Array.from(new Set([...people, ...expenses.map((e) => e.paidBy || "Me")])), [people, expenses]);
+  const payeesInData = useMemo(() => Array.from(new Set([...payees, ...expenses.map((e) => e.paidTo).filter(Boolean)])), [payees, expenses]);
   const activeFilters = Object.entries(filters).filter(([, v]) => v && v !== "all").length;
   const toggleSort = (k) => { if (sortBy === k) setSortDir((d) => (d === "asc" ? "desc" : "asc")); else { setSortBy(k); setSortDir("desc"); } };
 
@@ -730,7 +925,8 @@ function Transactions({ expenses, categories, people, myName, onUpdate, onDelete
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Category</label><select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}</select></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Payment</label><select value={filters.method} onChange={(e) => setFilters({ ...filters, method: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid by</label><select value={filters.person} onChange={(e) => setFilters({ ...filters, person: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{peopleInData.map((p) => <option key={p} value={p}>{p}</option>)}</select></div>
-            {activeFilters > 0 && <button onClick={() => setFilters({ from: "", to: "", category: "all", method: "all", person: "all" })} className="col-span-2 lg:col-span-5 text-xs text-slate-500 hover:text-rose-500 text-left">Clear all filters</button>}
+            {payeesInData.length > 0 && <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid to</label><select value={filters.payee} onChange={(e) => setFilters({ ...filters, payee: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{payeesInData.map((p) => <option key={p} value={p}>{p}</option>)}</select></div>}
+            {activeFilters > 0 && <button onClick={() => setFilters({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" })} className="col-span-2 lg:col-span-5 text-xs text-slate-500 hover:text-rose-500 text-left">Clear all filters</button>}
           </div>
         )}
       </Card>
@@ -744,9 +940,9 @@ function Transactions({ expenses, categories, people, myName, onUpdate, onDelete
         {filtered.length === 0 ? (
           <Card className="p-10 text-center"><Receipt className="w-8 h-8 text-slate-300 mx-auto mb-2" /><p className="text-slate-400 text-sm">No transactions match your filters.</p></Card>
         ) : filtered.map((e) => editId === e.id ? (
-          <EditRow key={e.id} expense={e} categories={categories} people={peopleInData} onCancel={() => setEditId(null)} onSave={(u) => { onUpdate(u); setEditId(null); }} />
+          <EditRow key={e.id} expense={e} categories={categories} people={peopleInData} payees={payeesInData} onCancel={() => setEditId(null)} onSave={(u) => { onUpdate(u); setEditId(null); }} />
         ) : (
-          <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} />
+          <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} canEdit={canEdit} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} />
         ))}
       </div>
     </div>
@@ -755,10 +951,11 @@ function Transactions({ expenses, categories, people, myName, onUpdate, onDelete
 
 /* ============================== settings ============================== */
 
-function SettingsView({ categories, setCategories, people, setPeople, expenses, bucketName, myName, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, isOwner, onSignOut, userEmail }) {
+function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, myName, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, isOwner, canEdit, onSignOut, userEmail }) {
   const [newCat, setNewCat] = useState({ name: "", emoji: "🏷️", color: PALETTE[0] });
   const [editCatId, setEditCatId] = useState(null);
   const [newPerson, setNewPerson] = useState("");
+  const [newPayee, setNewPayee] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName);
   const fileRef = useRef(null);
@@ -772,6 +969,8 @@ function SettingsView({ categories, setCategories, people, setPeople, expenses, 
   const deleteCat = (id) => { if (categories.length <= 1) return; setCategories(categories.filter((c) => c.id !== id)); };
   const addPerson = () => { const n = newPerson.trim(); if (!n || people.some((p) => p.toLowerCase() === n.toLowerCase())) { setNewPerson(""); return; } setPeople([...people, n]); setNewPerson(""); };
   const deletePerson = (p) => setPeople(people.filter((x) => x !== p));
+  const addPayee = () => { const n = newPayee.trim(); if (!n || payees.some((p) => p.toLowerCase() === n.toLowerCase())) { setNewPayee(""); return; } setPayees([...payees, n]); setNewPayee(""); };
+  const deletePayee = (p) => setPayees(payees.filter((x) => x !== p));
 
   return (
     <div className="space-y-4">
@@ -805,12 +1004,12 @@ function SettingsView({ categories, setCategories, people, setPeople, expenses, 
               <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg" style={{ background: c.color + "1F" }}>{c.emoji}</div>
               <span className="flex-1 font-medium text-slate-700 text-sm">{c.name}</span>
               <span className="w-4 h-4 rounded-full" style={{ background: c.color }} />
-              <button onClick={() => setEditCatId(c.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => deleteCat(c.id)} disabled={categories.length <= 1} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 disabled:opacity-30"><Trash2 className="w-4 h-4" /></button>
+              {canEdit && <button onClick={() => setEditCatId(c.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>}
+              {canEdit && <button onClick={() => deleteCat(c.id)} disabled={categories.length <= 1} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 disabled:opacity-30"><Trash2 className="w-4 h-4" /></button>}
             </div>
           ))}
         </div>
-        <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+        {canEdit && <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
           <p className="text-xs font-medium text-slate-500 mb-2">Add category</p>
           <div className="flex gap-2 items-center mb-2">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: newCat.color + "1F" }}>{newCat.emoji}</div>
@@ -819,24 +1018,42 @@ function SettingsView({ categories, setCategories, people, setPeople, expenses, 
             <button onClick={addCat} className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 flex items-center gap-1"><Plus className="w-4 h-4" /></button>
           </div>
           <div className="flex flex-wrap gap-1">{EMOJI_CHOICES.map((em) => <button key={em} onClick={() => setNewCat({ ...newCat, emoji: em })} className={`w-8 h-8 rounded-lg text-base hover:bg-slate-200 ${newCat.emoji === em ? "bg-slate-200 ring-1 ring-slate-400" : ""}`}>{em}</button>)}</div>
-        </div>
+        </div>}
       </Card>
 
       {/* people */}
       <Card className="p-4 sm:p-5">
-        <div className="flex items-center gap-2 mb-4"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">People</h3><span className="text-xs text-slate-400">· names for "paid by"</span></div>
+        <div className="flex items-center gap-2 mb-4"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">People</h3><span className="text-xs text-slate-400">· names for "paid by" & splits</span></div>
         <div className="flex flex-wrap gap-2 mb-3">
           {people.map((p) => (
             <span key={p} className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-full bg-slate-100 text-sm text-slate-700">
               <span className="w-5 h-5 rounded-full bg-slate-900 text-white text-[10px] flex items-center justify-center font-semibold">{p.slice(0, 1).toUpperCase()}</span>
-              {p}<button onClick={() => deletePerson(p)} className="text-slate-400 hover:text-rose-500"><X className="w-3.5 h-3.5" /></button>
+              {p}{canEdit && <button onClick={() => deletePerson(p)} className="text-slate-400 hover:text-rose-500"><X className="w-3.5 h-3.5" /></button>}
             </span>
           ))}
         </div>
-        <div className="flex gap-2">
+        {canEdit && <div className="flex gap-2">
           <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} placeholder="Add a person (partner, roommate…)" className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400" />
           <button onClick={addPerson} className="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Add</button>
+        </div>}
+      </Card>
+
+      {/* payees */}
+      <Card className="p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-4"><Store className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Payees</h3><span className="text-xs text-slate-400">· vendors & contractors for "paid to"</span></div>
+        {payees.length === 0 && <p className="text-sm text-slate-400 mb-3">No payees yet. Add the people/vendors you pay — e.g. your contractor — and pick them on an expense. New names typed on an expense are added here automatically.</p>}
+        <div className="flex flex-wrap gap-2 mb-3">
+          {payees.map((p) => (
+            <span key={p} className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-full bg-sky-50 text-sm text-sky-800">
+              <span className="w-5 h-5 rounded-full bg-sky-600 text-white text-[10px] flex items-center justify-center font-semibold">{p.slice(0, 1).toUpperCase()}</span>
+              {p}{canEdit && <button onClick={() => deletePayee(p)} className="text-sky-400 hover:text-rose-500"><X className="w-3.5 h-3.5" /></button>}
+            </span>
+          ))}
         </div>
+        {canEdit && <div className="flex gap-2">
+          <input value={newPayee} onChange={(e) => setNewPayee(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPayee()} placeholder="Add a payee (contractor, vendor…)" className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400" />
+          <button onClick={addPayee} className="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Add</button>
+        </div>}
       </Card>
 
       {/* backup */}
@@ -845,7 +1062,7 @@ function SettingsView({ categories, setCategories, people, setPeople, expenses, 
         <p className="text-sm text-slate-500 mb-3">Export this bucket's expenses to a file you keep, or restore from one. (Recommended occasionally — the free database has no automatic backups.)</p>
         <div className="flex gap-2">
           <button onClick={onExport} className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm hover:bg-slate-50 flex items-center gap-1.5"><Download className="w-4 h-4" /> Export JSON</button>
-          <button onClick={() => fileRef.current?.click()} className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm hover:bg-slate-50 flex items-center gap-1.5"><Upload className="w-4 h-4" /> Import</button>
+          {canEdit && <button onClick={() => fileRef.current?.click()} className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm hover:bg-slate-50 flex items-center gap-1.5"><Upload className="w-4 h-4" /> Import</button>}
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ""; }} />
         </div>
       </Card>
@@ -899,6 +1116,7 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [people, setPeople] = useState([]);
+  const [payees, setPayees] = useState([]);
   const [tab, setTab] = useState("dashboard");
   const [manageOpen, setManageOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -929,7 +1147,7 @@ export default function App() {
 
       let list = (bks || []).map((b) => {
         const mine = members.find((m) => m.bucket_id === b.id && (m.user_id === user.id || (m.email || "").toLowerCase() === myEmail));
-        return { ...b, role: b.owner_id === user.id ? "owner" : (mine?.role || "member") };
+        return { ...b, role: b.owner_id === user.id ? "owner" : normalizeRole(mine?.role), payeeName: mine?.payee_name || null };
       });
 
       if (list.length === 0) {
@@ -966,6 +1184,7 @@ export default function App() {
       }
       setCategories(Array.isArray(st.categories) && st.categories.length ? st.categories : DEFAULT_CATEGORIES);
       setPeople(Array.isArray(st.people) ? st.people : [myName]);
+      setPayees(Array.isArray(st.payees) ? st.payees : []);
     } catch (e) {
       flash("Couldn't load this bucket.");
       console.error(e);
@@ -990,28 +1209,33 @@ export default function App() {
     return () => { document.removeEventListener("visibilitychange", onFocus); supabase.removeChannel(ch); };
   }, [selectedId, loadBucketData]);
 
-  /* ---- persist settings (categories/people) when they change ---- */
+  /* ---- persist settings (categories/people/payees) when they change ---- */
   useEffect(() => {
     if (!selectedId || !settingsHydrated.current) return;
+    const role = buckets.find((b) => b.id === selectedId)?.role;
+    if (role !== "owner" && role !== "manager") return; // viewers/payees can't write settings
     const t = setTimeout(() => {
-      supabase.from("bucket_settings").upsert({ bucket_id: selectedId, categories, people, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) console.error(error); });
+      supabase.from("bucket_settings").upsert({ bucket_id: selectedId, categories, people, payees, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) console.error(error); });
     }, 400);
     return () => clearTimeout(t);
-  }, [categories, people, selectedId]);
+  }, [categories, people, payees, selectedId, buckets]);
 
   /* ---- expense CRUD ---- */
   const ensurePerson = (name) => { const n = (name || "").trim(); if (n && !people.some((p) => p.toLowerCase() === n.toLowerCase())) setPeople((prev) => [...prev, n]); };
+  const ensurePayee = (name) => { const n = (name || "").trim(); if (n && !payees.some((p) => p.toLowerCase() === n.toLowerCase())) setPayees((prev) => [...prev, n]); };
 
   const addExpense = async (e) => {
     ensurePerson(e.paidBy);
-    const row = { bucket_id: selectedId, user_id: user.id, amount: e.amount, category: e.category, description: e.description, date: e.date, method: e.method, paid_by: e.paidBy };
+    ensurePayee(e.paidTo);
+    const row = { bucket_id: selectedId, user_id: user.id, amount: e.amount, category: e.category, description: e.description, date: e.date, method: e.method, paid_by: e.paidBy, paid_to: e.paidTo || "", split: e.split || null };
     const { data, error } = await supabase.from("expenses").insert(row).select().single();
     if (error) { flash("Couldn't save expense."); console.error(error); return; }
     setExpenses((prev) => [rowToExpense(data), ...prev]);
   };
   const updateExpense = async (u) => {
     ensurePerson(u.paidBy);
-    const { error } = await supabase.from("expenses").update({ amount: u.amount, category: u.category, description: u.description, date: u.date, method: u.method, paid_by: u.paidBy }).eq("id", u.id);
+    ensurePayee(u.paidTo);
+    const { error } = await supabase.from("expenses").update({ amount: u.amount, category: u.category, description: u.description, date: u.date, method: u.method, paid_by: u.paidBy, paid_to: u.paidTo || "", split: u.split || null }).eq("id", u.id);
     if (error) { flash("Couldn't update."); return; }
     setExpenses((prev) => prev.map((x) => (x.id === u.id ? { ...u } : x)));
   };
@@ -1030,7 +1254,7 @@ export default function App() {
       const { data: created, error } = await supabase.from("buckets").insert({ name: name.trim(), emoji: "💼", owner_id: user.id }).select().single();
       if (error) throw error;
       await supabase.from("bucket_members").insert({ bucket_id: created.id, email: myEmail, user_id: user.id, role: "owner" });
-      await supabase.from("bucket_settings").insert({ bucket_id: created.id, categories: DEFAULT_CATEGORIES, people: [myName] });
+      await supabase.from("bucket_settings").insert({ bucket_id: created.id, categories: DEFAULT_CATEGORIES, people: [myName], payees: [] });
       await loadBuckets();
       setSelectedId(created.id);
       flash("Bucket created.");
@@ -1042,11 +1266,17 @@ export default function App() {
     setBuckets((prev) => prev.map((b) => (b.id === selectedId ? { ...b, name, emoji } : b)));
     flash("Saved.");
   };
-  const inviteMember = async (email) => {
-    const { error } = await supabase.from("bucket_members").insert({ bucket_id: selectedId, email, role: "member" });
+  const inviteMember = async (email, role = "manager", payeeName = null) => {
+    const { error } = await supabase.from("bucket_members").insert({ bucket_id: selectedId, email, role, payee_name: payeeName });
     if (error) return { error: error.code === "23505" ? "Already invited." : error.message };
     await loadBuckets();
     return {};
+  };
+  const changeMemberRole = async (m, role) => {
+    const { error } = await supabase.from("bucket_members").update({ role, payee_name: role === "payee" ? m.payee_name : null }).eq("id", m.id);
+    if (error) { flash("Couldn't change role."); return; }
+    await loadBuckets();
+    flash("Role updated.");
   };
   const removeMember = async (m) => {
     const { error } = await supabase.from("bucket_members").delete().eq("id", m.id);
@@ -1086,7 +1316,7 @@ export default function App() {
 
   const exportData = () => {
     const bucket = buckets.find((b) => b.id === selectedId);
-    const blob = new Blob([JSON.stringify({ bucket: bucket?.name, exportedAt: new Date().toISOString(), categories, people, expenses }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ bucket: bucket?.name, exportedAt: new Date().toISOString(), categories, people, payees, expenses }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `spendr-${(bucket?.name || "bucket").toLowerCase().replace(/\s+/g, "-")}.json`; a.click();
@@ -1098,11 +1328,12 @@ export default function App() {
       const parsed = JSON.parse(text);
       const incoming = Array.isArray(parsed.expenses) ? parsed.expenses : [];
       if (!incoming.length) { flash("No expenses found in file."); return; }
-      const rows = incoming.map((e) => ({ bucket_id: selectedId, user_id: user.id, amount: Number(e.amount) || 0, category: e.category || "other", description: e.description || "", date: e.date || todayStr(), method: e.method || "other", paid_by: e.paidBy || e.paid_by || myName }));
+      const rows = incoming.map((e) => ({ bucket_id: selectedId, user_id: user.id, amount: Number(e.amount) || 0, category: e.category || "other", description: e.description || "", date: e.date || todayStr(), method: e.method || "other", paid_by: e.paidBy || e.paid_by || myName, paid_to: e.paidTo || e.paid_to || "", split: e.split || null }));
       const { error } = await supabase.from("expenses").insert(rows);
       if (error) throw error;
       if (Array.isArray(parsed.categories) && parsed.categories.length) setCategories(parsed.categories);
       if (Array.isArray(parsed.people)) setPeople((prev) => Array.from(new Set([...prev, ...parsed.people])));
+      if (Array.isArray(parsed.payees)) setPayees((prev) => Array.from(new Set([...prev, ...parsed.payees])));
       await loadBucketData(selectedId);
       flash(`Imported ${rows.length} expenses.`);
     } catch (e) { flash("Import failed — is it a Spendr export file?"); console.error(e); }
@@ -1115,14 +1346,18 @@ export default function App() {
     return c;
   }, [allMembers]);
   const currentBucket = buckets.find((b) => b.id === selectedId);
-  const isOwner = currentBucket?.role === "owner";
+  const myRole = normalizeRole(currentBucket?.role);
+  const isOwner = myRole === "owner";
+  const canEdit = myRole === "owner" || myRole === "manager";
+  const isPayee = myRole === "payee";
   const bucketMembers = useMemo(() => allMembers.filter((m) => m.bucket_id === selectedId).sort((a, b) => (a.role === "owner" ? -1 : 1)), [allMembers, selectedId]);
 
   const tabs = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    ...(isPayee ? [] : [{ id: "dashboard", label: "Dashboard", icon: LayoutDashboard }]),
     { id: "transactions", label: "Transactions", icon: Receipt },
     { id: "settings", label: "Manage", icon: SettingsIcon },
   ];
+  useEffect(() => { if (isPayee && tab === "dashboard") setTab("transactions"); }, [isPayee, tab]);
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-7 h-7 animate-spin text-slate-400" /></div>;
   if (!session) return <AuthScreen />;
@@ -1150,15 +1385,21 @@ export default function App() {
           <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3"><Loader2 className="w-7 h-7 animate-spin" /><p className="text-sm">Loading {currentBucket?.name}…</p></div>
         ) : (
           <>
-            {tab !== "settings" && <QuickAdd categories={categories} people={people} defaultPaidBy={myName} onAdd={addExpense} />}
-            {tab === "dashboard" && <Dashboard expenses={expenses} categories={categories} myName={myName} />}
-            {tab === "transactions" && <Transactions expenses={expenses} categories={categories} people={people} myName={myName} onUpdate={updateExpense} onDelete={deleteExpense} />}
+            {isPayee && (
+              <Card className="p-3.5 sm:p-4 bg-sky-50/60 border-sky-200">
+                <p className="text-sm text-sky-800 flex items-center gap-2"><Eye className="w-4 h-4 shrink-0" /> You're viewing payments made to {currentBucket?.payeeName ? <strong>{currentBucket.payeeName}</strong> : "you"} in this bucket.</p>
+              </Card>
+            )}
+            {tab !== "settings" && canEdit && <QuickAdd categories={categories} people={people} payees={payees} defaultPaidBy={myName} onAdd={addExpense} />}
+            {tab === "dashboard" && !isPayee && <Dashboard expenses={expenses} categories={categories} myName={myName} />}
+            {tab === "transactions" && <Transactions expenses={expenses} categories={categories} people={people} payees={payees} myName={myName} canEdit={canEdit} onUpdate={updateExpense} onDelete={deleteExpense} />}
             {tab === "settings" && (
               <SettingsView
                 categories={categories} setCategories={setCategories} people={people} setPeople={setPeople}
+                payees={payees} setPayees={setPayees}
                 expenses={expenses} bucketName={currentBucket?.name || "this bucket"} myName={myName}
                 displayName={myName} onChangeName={changeName} userEmail={user.email}
-                onExport={exportData} onImport={importData} onClearBucket={clearBucket} isOwner={isOwner} onSignOut={signOut}
+                onExport={exportData} onImport={importData} onClearBucket={clearBucket} isOwner={isOwner} canEdit={canEdit} onSignOut={signOut}
               />
             )}
           </>
@@ -1167,8 +1408,8 @@ export default function App() {
 
       {manageOpen && currentBucket && (
         <ManageBucketModal
-          bucket={currentBucket} members={bucketMembers} isOwner={isOwner} myEmail={myEmail}
-          onClose={() => setManageOpen(false)} onRename={renameBucket} onInvite={inviteMember}
+          bucket={currentBucket} members={bucketMembers} isOwner={isOwner} myEmail={myEmail} payees={payees}
+          onClose={() => setManageOpen(false)} onRename={renameBucket} onInvite={inviteMember} onChangeRole={changeMemberRole}
           onRemoveMember={removeMember} onLeave={leaveBucket} onDelete={deleteBucket}
         />
       )}

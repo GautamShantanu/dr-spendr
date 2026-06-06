@@ -23,16 +23,19 @@ create table if not exists public.bucket_members (
   bucket_id  uuid not null references public.buckets(id) on delete cascade,
   email      text not null,
   user_id    uuid references auth.users(id) on delete set null,
-  role       text not null default 'member',  -- 'owner' | 'member'
+  role       text not null default 'manager',  -- 'owner' | 'manager' | 'viewer' | 'payee'
+  payee_name text,                             -- for role 'payee': which payee they are
   created_at timestamptz not null default now(),
   unique (bucket_id, email)
 );
 
--- Per-bucket settings: custom categories and the people list (for "paid by").
+-- Per-bucket settings: custom categories, the people list (for "paid by"),
+-- and the payees list (vendors/contractors, for "paid to").
 create table if not exists public.bucket_settings (
   bucket_id  uuid primary key references public.buckets(id) on delete cascade,
   categories jsonb not null default '[]'::jsonb,
   people     jsonb not null default '[]'::jsonb,
+  payees     jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 
@@ -47,8 +50,17 @@ create table if not exists public.expenses (
   date        date not null default current_date,
   method      text not null default 'upi',
   paid_by     text not null default 'Me',
+  paid_to     text not null default '',   -- optional payee/vendor (e.g. a contractor)
+  split       jsonb,                      -- optional custom shares: {"Name": amount, ...}
   created_at  timestamptz not null default now()
 );
+
+-- Upgrades for databases created before these columns existed (no-ops on fresh installs).
+alter table public.expenses        add column if not exists paid_to text not null default '';
+alter table public.expenses        add column if not exists split jsonb;
+alter table public.bucket_settings add column if not exists payees jsonb not null default '[]'::jsonb;
+alter table public.bucket_members  add column if not exists payee_name text;
+update public.bucket_members set role = 'manager' where role = 'member';
 
 create index if not exists expenses_bucket_idx on public.expenses(bucket_id);
 create index if not exists members_email_idx   on public.bucket_members (lower(email));
@@ -71,6 +83,35 @@ returns boolean
 language sql security definer set search_path = public stable
 as $$
   select exists (select 1 from public.buckets where id = b and owner_id = auth.uid())
+$$;
+
+-- The current user's role in bucket b: 'owner' | 'manager' | 'viewer' | 'payee' | null.
+-- (legacy 'member' rows count as 'manager')
+create or replace function public.my_role(b uuid)
+returns text
+language sql security definer set search_path = public stable
+as $$
+  select case
+    when exists (select 1 from public.buckets where id = b and owner_id = auth.uid()) then 'owner'
+    else (
+      select case when role = 'member' then 'manager' else role end
+      from public.bucket_members
+      where bucket_id = b
+        and (user_id = auth.uid() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')))
+      limit 1
+    )
+  end
+$$;
+
+-- For a 'payee' member of bucket b: the payee name they're linked to.
+create or replace function public.my_payee_name(b uuid)
+returns text
+language sql security definer set search_path = public stable
+as $$
+  select payee_name from public.bucket_members
+  where bucket_id = b and role = 'payee'
+    and (user_id = auth.uid() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')))
+  limit 1
 $$;
 
 -- ---------- Row Level Security ----------
@@ -110,9 +151,9 @@ create policy members_insert on public.bucket_members for insert
 
 drop policy if exists members_update on public.bucket_members;
 create policy members_update on public.bucket_members for update
-  using (public.is_bucket_owner(bucket_id)
-         or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')))
-  with check (true);
+  using (public.is_bucket_owner(bucket_id))
+  with check (public.is_bucket_owner(bucket_id));
+  -- owner only: otherwise a viewer/payee could change their own role
 
 drop policy if exists members_delete on public.bucket_members;
 create policy members_delete on public.bucket_members for delete
@@ -120,29 +161,47 @@ create policy members_delete on public.bucket_members for delete
          or user_id = auth.uid()
          or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
 
--- bucket_settings
+-- bucket_settings: everyone in the bucket can read; only owner/manager can write
 drop policy if exists settings_all on public.bucket_settings;
-create policy settings_all on public.bucket_settings for all
-  using (bucket_id in (select public.my_bucket_ids()))
-  with check (bucket_id in (select public.my_bucket_ids()));
+drop policy if exists settings_select on public.bucket_settings;
+create policy settings_select on public.bucket_settings for select
+  using (bucket_id in (select public.my_bucket_ids()));
 
--- expenses
+drop policy if exists settings_insert on public.bucket_settings;
+create policy settings_insert on public.bucket_settings for insert
+  with check (public.my_role(bucket_id) in ('owner','manager'));
+
+drop policy if exists settings_update on public.bucket_settings;
+create policy settings_update on public.bucket_settings for update
+  using (public.my_role(bucket_id) in ('owner','manager'))
+  with check (public.my_role(bucket_id) in ('owner','manager'));
+
+drop policy if exists settings_delete on public.bucket_settings;
+create policy settings_delete on public.bucket_settings for delete
+  using (public.my_role(bucket_id) in ('owner','manager'));
+
+-- expenses: owner/manager/viewer see everything; a 'payee' member sees ONLY
+-- payments made to them; only owner/manager can add/edit/delete
 drop policy if exists expenses_select on public.expenses;
 create policy expenses_select on public.expenses for select
-  using (bucket_id in (select public.my_bucket_ids()));
+  using (
+    public.my_role(bucket_id) in ('owner','manager','viewer')
+    or (public.my_role(bucket_id) = 'payee'
+        and lower(paid_to) = lower(coalesce(public.my_payee_name(bucket_id), '')))
+  );
 
 drop policy if exists expenses_insert on public.expenses;
 create policy expenses_insert on public.expenses for insert
-  with check (bucket_id in (select public.my_bucket_ids()) and user_id = auth.uid());
+  with check (public.my_role(bucket_id) in ('owner','manager') and user_id = auth.uid());
 
 drop policy if exists expenses_update on public.expenses;
 create policy expenses_update on public.expenses for update
-  using (bucket_id in (select public.my_bucket_ids()))
-  with check (bucket_id in (select public.my_bucket_ids()));
+  using (public.my_role(bucket_id) in ('owner','manager'))
+  with check (public.my_role(bucket_id) in ('owner','manager'));
 
 drop policy if exists expenses_delete on public.expenses;
 create policy expenses_delete on public.expenses for delete
-  using (bucket_id in (select public.my_bucket_ids()));
+  using (public.my_role(bucket_id) in ('owner','manager'));
 
 -- ---------- Realtime (so shared buckets update live across devices) ----------
 

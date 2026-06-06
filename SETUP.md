@@ -94,6 +94,29 @@ Use the **Personal** bucket for your own expenses, the **Joint** bucket for shar
 ones. In the Joint bucket, "paid by" defaults to your name, so the **Who paid**
 summary clearly shows how much each of you covered.
 
+### Roles, payees & splits
+
+When inviting someone to a bucket you pick their role:
+
+- **Manager** — can add/edit/delete expenses (the default; right for your wife).
+- **Viewer** — sees everything, can change nothing.
+- **Payee** — sees **only the payments made to them** (see below).
+
+Other features useful for projects like building a house:
+
+- **Paid to (payee):** every expense can optionally record who was paid — a
+  contractor, an electrician, a materials vendor. Manage the list under
+  **Manage → Payees** (new names typed on an expense are added automatically).
+  The dashboard gets a **Paid to** panel totalling payments per vendor.
+- **Payee access:** payees normally don't need an account — they're just names.
+  But if you want e.g. your contractor to see a live record of what he's been
+  paid, invite his email with role **Payee** and link it to his payee name. He
+  signs in and sees only his own payments — nothing else. Enforced by the
+  database, not just the UI.
+- **Splits:** tick **Split this expense** to divide an expense between the
+  people in the bucket with custom shares ("Split equally" fills them in one
+  tap). The dashboard's **Balances** panel then shows who owes whom.
+
 ---
 
 ## Step 5 — Install on your iPhone 14
