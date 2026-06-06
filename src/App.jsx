@@ -149,9 +149,7 @@ function AuthScreen() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-slate-100 to-slate-50">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center mb-3 shadow-lg">
-            <Wallet className="w-7 h-7 text-emerald-400" />
-          </div>
+          <img src="/logo.svg" alt="Dr Spendr" className="w-14 h-14 rounded-2xl mb-3 shadow-lg" />
           <h1 className="text-xl font-bold text-slate-900">Dr Spendr</h1>
           <p className="text-sm text-slate-500">Personal & shared expense tracking</p>
         </div>
@@ -1450,7 +1448,7 @@ export default function App() {
       <header className="sticky top-0 z-30 bg-slate-50/85 backdrop-blur-md border-b border-slate-200/60">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center shrink-0"><Wallet className="w-4.5 h-4.5 text-emerald-400" /></div>
+            <img src="/logo.svg" alt="Dr Spendr" className="w-9 h-9 rounded-xl shrink-0" />
             {currentBucket && <BucketSwitcher buckets={buckets} selectedId={selectedId} onSelect={setSelectedId} onNew={createBucket} onManage={() => setManageOpen(true)} memberCounts={memberCounts} />}
           </div>
           <nav className="hidden sm:flex items-center gap-1 bg-slate-100 rounded-xl p-1">

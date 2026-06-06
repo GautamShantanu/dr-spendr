@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>Dr Spendr — stethoscope and rupee coin</title>
+  <!-- background -->
+  <rect width="512" height="512" fill="#262624"/>
+  <!-- stethoscope (teal) -->
+  <g stroke="#6ee7cf" stroke-width="22" stroke-linecap="round" fill="none">
+    <path d="M200 112 C200 152 226 164 256 180"/>
+    <path d="M312 112 C312 152 286 164 256 180"/>
+    <path d="M256 180 C256 248 196 240 170 276 C138 320 158 392 226 408 C264 416 294 400 314 376"/>
+  </g>
+  <ellipse cx="200" cy="84" rx="17" ry="25" fill="#6ee7cf"/>
+  <ellipse cx="312" cy="84" rx="17" ry="25" fill="#6ee7cf"/>
+  <!-- coin shadow -->
+  <circle cx="374" cy="386" r="84" fill="#a4592b"/>
+  <!-- coin -->
+  <circle cx="352" cy="370" r="84" fill="#e9a23b"/>
+  <circle cx="352" cy="370" r="64" fill="none" stroke="#c77f28" stroke-width="6"/>
+  <!-- rupee symbol -->
+  <g transform="translate(322,322) scale(2.4)" fill="none" stroke="#2f4640" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="2" y1="2" x2="24" y2="2"/>
+    <line x1="2" y1="14" x2="24" y2="14"/>
+    <path d="M2 26 C 20 26 22 2 6 2"/>
+    <line x1="6" y1="14" x2="22" y2="38"/>
+  </g>
+</svg>
