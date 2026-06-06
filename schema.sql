@@ -52,12 +52,14 @@ create table if not exists public.expenses (
   paid_by     text not null default 'Me',
   paid_to     text not null default '',   -- optional payee/vendor (e.g. a contractor)
   split       jsonb,                      -- optional custom shares: {"Name": amount, ...}
+  attachments jsonb not null default '[]'::jsonb,  -- up to 2 receipt photo paths in storage
   created_at  timestamptz not null default now()
 );
 
 -- Upgrades for databases created before these columns existed (no-ops on fresh installs).
 alter table public.expenses        add column if not exists paid_to text not null default '';
 alter table public.expenses        add column if not exists split jsonb;
+alter table public.expenses        add column if not exists attachments jsonb not null default '[]'::jsonb;
 alter table public.bucket_settings add column if not exists payees jsonb not null default '[]'::jsonb;
 alter table public.bucket_members  add column if not exists payee_name text;
 update public.bucket_members set role = 'manager' where role = 'member';
@@ -202,6 +204,39 @@ create policy expenses_update on public.expenses for update
 drop policy if exists expenses_delete on public.expenses;
 create policy expenses_delete on public.expenses for delete
   using (public.my_role(bucket_id) in ('owner','manager'));
+
+-- ---------- Receipt photo storage ----------
+-- Private bucket; files live at  <bucket_id>/<expense_id>/<file>.jpg
+-- Access mirrors the expense roles: owner/manager upload & delete, everyone in
+-- the bucket can view, a 'payee' member can view only their own payments' photos.
+
+insert into storage.buckets (id, name, public)
+values ('receipts', 'receipts', false)
+on conflict (id) do nothing;
+
+drop policy if exists receipts_read on storage.objects;
+create policy receipts_read on storage.objects for select
+  using (
+    bucket_id = 'receipts' and (
+      public.my_role(((storage.foldername(name))[1])::uuid) in ('owner','manager','viewer')
+      or (
+        public.my_role(((storage.foldername(name))[1])::uuid) = 'payee'
+        and exists (
+          select 1 from public.expenses e
+          where e.id::text = (storage.foldername(name))[2]
+            and lower(e.paid_to) = lower(coalesce(public.my_payee_name(((storage.foldername(name))[1])::uuid), ''))
+        )
+      )
+    )
+  );
+
+drop policy if exists receipts_insert on storage.objects;
+create policy receipts_insert on storage.objects for insert
+  with check (bucket_id = 'receipts' and public.my_role(((storage.foldername(name))[1])::uuid) in ('owner','manager'));
+
+drop policy if exists receipts_delete on storage.objects;
+create policy receipts_delete on storage.objects for delete
+  using (bucket_id = 'receipts' and public.my_role(((storage.foldername(name))[1])::uuid) in ('owner','manager'));
 
 -- ---------- Realtime (so shared buckets update live across devices) ----------
 

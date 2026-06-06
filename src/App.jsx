@@ -5,7 +5,7 @@ import {
   Calendar, CreditCard, Loader2, ArrowUpDown, Tag, Banknote, Smartphone,
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
-  Store, Divide, Eye,
+  Store, Divide, Eye, Paperclip, ImagePlus,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -58,7 +58,26 @@ const rowToExpense = (r) => ({
   id: r.id, amount: Number(r.amount), category: r.category, description: r.description || "",
   date: r.date, method: r.method, paidBy: r.paid_by || "Me", paidTo: r.paid_to || "",
   split: r.split && typeof r.split === "object" && Object.keys(r.split).length ? r.split : null,
+  attachments: Array.isArray(r.attachments) ? r.attachments : [],
 });
+
+/* Resize/compress a photo before upload (~150-250 KB instead of multi-MB). */
+const compressImage = (file, maxDim = 1280, quality = 0.72) => new Promise((resolve) => {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((b) => { URL.revokeObjectURL(url); resolve(b || file); }, "image/jpeg", quality);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+  img.src = url;
+});
+
+const MAX_PHOTOS = 2;
 
 const ROLE_LABELS = { owner: "Owner", manager: "Manager", viewer: "Viewer", payee: "Payee", member: "Manager" };
 const normalizeRole = (r) => (r === "member" ? "manager" : r || "manager");
@@ -441,6 +460,67 @@ const buildSplit = (shares, people, amt) => {
   return { split: s };
 };
 
+/* ============================== receipt photos ============================== */
+
+function PhotoPicker({ photos, setPhotos, existing = [], onRemoveExisting }) {
+  const inRef = useRef(null);
+  const remaining = MAX_PHOTOS - existing.length - photos.length;
+  const pick = async (e) => {
+    const files = Array.from(e.target.files || []).slice(0, Math.max(0, remaining));
+    e.target.value = "";
+    for (const f of files) {
+      const blob = await compressImage(f);
+      setPhotos((prev) => prev.length + existing.length >= MAX_PHOTOS ? prev : [...prev, { blob, url: URL.createObjectURL(blob) }]);
+    }
+  };
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {existing.map((p) => (
+        <div key={p} className="relative">
+          <div className="w-14 h-14 rounded-lg border border-slate-200 bg-slate-100 flex items-center justify-center"><Paperclip className="w-5 h-5 text-slate-400" /></div>
+          {onRemoveExisting && <button type="button" onClick={() => onRemoveExisting(p)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center"><X className="w-3 h-3" /></button>}
+        </div>
+      ))}
+      {photos.map((p, i) => (
+        <div key={p.url} className="relative">
+          <img src={p.url} alt="" className="w-14 h-14 rounded-lg object-cover border border-slate-200" />
+          <button type="button" onClick={() => { URL.revokeObjectURL(p.url); setPhotos((prev) => prev.filter((_, j) => j !== i)); }} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center"><X className="w-3 h-3" /></button>
+        </div>
+      ))}
+      {remaining > 0 && (
+        <button type="button" onClick={() => inRef.current?.click()} className="w-14 h-14 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:text-slate-600 hover:border-slate-400 flex flex-col items-center justify-center gap-0.5">
+          <ImagePlus className="w-5 h-5" /><span className="text-[9px] font-medium">Photo</span>
+        </button>
+      )}
+      <input ref={inRef} type="file" accept="image/*" multiple className="hidden" onChange={pick} />
+    </div>
+  );
+}
+
+function AttachmentViewer({ paths, onClose }) {
+  const [urls, setUrls] = useState(null);
+  useEffect(() => {
+    (async () => {
+      const out = [];
+      for (const p of paths) {
+        const { data } = await supabase.storage.from("receipts").createSignedUrl(p, 3600);
+        if (data?.signedUrl) out.push(data.signedUrl);
+      }
+      setUrls(out);
+    })();
+  }, [paths]);
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="max-w-lg w-full space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-end"><button onClick={onClose} className="p-2 rounded-lg bg-white/10 text-white hover:bg-white/20"><X className="w-5 h-5" /></button></div>
+        {urls === null ? <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 animate-spin text-white" /></div>
+          : urls.length === 0 ? <p className="text-center text-white/80 text-sm py-16">Couldn't load photos.</p>
+          : urls.map((u) => <img key={u} src={u} alt="Receipt" className="w-full rounded-2xl max-h-[70vh] object-contain bg-black/30" />)}
+      </div>
+    </div>
+  );
+}
+
 /* ============================== quick add ============================== */
 
 function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
@@ -449,6 +529,7 @@ function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
   const [expanded, setExpanded] = useState(false);
   const [splitOn, setSplitOn] = useState(false);
   const [shares, setShares] = useState({});
+  const [photos, setPhotos] = useState([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const amountRef = useRef(null);
@@ -465,9 +546,10 @@ function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
       split = res.split;
     }
     setErr(""); setBusy(true);
-    await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy, paidTo: f.paidTo.trim(), split });
+    await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy, paidTo: f.paidTo.trim(), split }, photos.map((p) => p.blob));
     setBusy(false);
-    setSplitOn(false); setShares({});
+    photos.forEach((p) => URL.revokeObjectURL(p.url));
+    setPhotos([]); setSplitOn(false); setShares({});
     setF({ ...blank, category: f.category, paidBy: f.paidBy });
     amountRef.current?.focus();
   };
@@ -520,6 +602,10 @@ function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
             <Divide className="w-3.5 h-3.5 text-slate-400" /> Split this expense
           </label>
           {splitOn && <SplitEditor amount={f.amount} people={people} shares={shares} setShares={setShares} />}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Receipt photos <span className="text-slate-400 font-normal">(optional, up to {MAX_PHOTOS})</span></p>
+            <PhotoPicker photos={photos} setPhotos={setPhotos} />
+          </div>
           {err && <p className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{err}</p>}
         </div>
       )}
@@ -529,13 +615,14 @@ function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
 
 /* ============================== stat + dashboard ============================== */
 
-function Stat({ label, value, sub, accent, icon: Icon, trend }) {
+function Stat({ label, value, exact, sub, accent, icon: Icon, trend }) {
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-xs font-medium text-slate-500 mb-1">{label}</p>
-          <p className="text-2xl font-bold text-slate-900 tracking-tight truncate">{value}</p>
+          <p className="text-2xl font-bold text-slate-900 tracking-tight truncate" title={exact || undefined}>{value}</p>
+          {exact && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{exact}</p>}
           {sub && (
             <div className="mt-1.5 flex items-center gap-1 text-xs">
               {trend === "up" && <TrendingUp className="w-3.5 h-3.5 text-rose-500" />}
@@ -634,9 +721,9 @@ function Dashboard({ expenses, categories, myName }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Spent this month" value={fmtINR(thisTotal)} accent="#5B8DEF" icon={Wallet} sub={pct === null ? "No data last month" : `${Math.abs(pct).toFixed(0)}% vs last month`} trend={pct === null ? null : pct > 0 ? "up" : "down"} />
-        <Stat label="Last month" value={fmtINR(lastTotal)} accent="#9B7EDE" icon={Calendar} sub={monthLabel(lastMK)} />
-        <Stat label="Daily average" value={fmtINR(dailyAvg)} accent="#4FB286" icon={TrendingUp} sub={`over ${days} day${days > 1 ? "s" : ""}`} />
+        <Stat label="Spent this month" value={fmtINRshort(thisTotal)} exact={fmtINRshort(thisTotal) !== fmtINR(thisTotal) ? fmtINR(thisTotal) : null} accent="#5B8DEF" icon={Wallet} sub={pct === null ? "No data last month" : `${Math.abs(pct).toFixed(0)}% vs last month`} trend={pct === null ? null : pct > 0 ? "up" : "down"} />
+        <Stat label="Last month" value={fmtINRshort(lastTotal)} exact={fmtINRshort(lastTotal) !== fmtINR(lastTotal) ? fmtINR(lastTotal) : null} accent="#9B7EDE" icon={Calendar} sub={monthLabel(lastMK)} />
+        <Stat label="Daily average" value={fmtINRshort(dailyAvg)} exact={fmtINRshort(dailyAvg) !== fmtINR(dailyAvg) ? fmtINR(dailyAvg) : null} accent="#4FB286" icon={TrendingUp} sub={`over ${days} day${days > 1 ? "s" : ""}`} />
         <Stat label="Biggest category" accent={biggest ? catMap[biggest.c]?.color : "#94a3b8"} icon={Tag} value={biggest ? `${catMap[biggest.c]?.emoji || ""} ${catMap[biggest.c]?.name || "—"}` : "—"} sub={biggest ? fmtINR(biggest.v) : ""} />
       </div>
 
@@ -809,7 +896,7 @@ function Dashboard({ expenses, categories, myName }) {
 
 const methodMeta = (id) => PAYMENT_METHODS.find((m) => m.id === id) || PAYMENT_METHODS[3];
 
-function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete }) {
+function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete, onViewPhotos }) {
   const [confirm, setConfirm] = useState(false);
   const M = methodMeta(expense.method);
   const dateLabel = new Date(expense.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -828,6 +915,7 @@ function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete }) {
             {notMe && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md font-medium"><Users className="w-3 h-3" />{expense.paidBy}</span></>)}
             {expense.paidTo && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded-md font-medium"><Store className="w-3 h-3" />{expense.paidTo}</span></>)}
             {splitCount > 0 && (<><span className="text-slate-300">·</span><span className="inline-flex items-center gap-1 text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-md font-medium" title={Object.entries(expense.split).map(([n, v]) => `${n}: ${fmtINR(v)}`).join(", ")}><Divide className="w-3 h-3" />÷{splitCount}</span></>)}
+            {expense.attachments?.length > 0 && (<><span className="text-slate-300">·</span><button onClick={onViewPhotos} className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md font-medium hover:bg-emerald-100"><Paperclip className="w-3 h-3" />{expense.attachments.length}</button></>)}
           </div>
         </div>
         <p className="font-semibold text-slate-900 shrink-0">{fmtINR(expense.amount)}</p>
@@ -855,6 +943,9 @@ function EditRow({ expense, categories, people, payees, onSave, onCancel }) {
   const [f, setF] = useState({ ...expense, amount: String(expense.amount), paidTo: expense.paidTo || "" });
   const [splitOn, setSplitOn] = useState(!!expense.split);
   const [shares, setShares] = useState(expense.split ? Object.fromEntries(Object.entries(expense.split).map(([k, v]) => [k, String(v)])) : {});
+  const [keepPaths, setKeepPaths] = useState(expense.attachments || []);
+  const [removedPaths, setRemovedPaths] = useState([]);
+  const [photos, setPhotos] = useState([]);
   const [err, setErr] = useState("");
   const save = () => {
     const amt = parseFloat(f.amount);
@@ -865,7 +956,7 @@ function EditRow({ expense, categories, people, payees, onSave, onCancel }) {
       if (res.error) { setErr(res.error); return; }
       split = res.split;
     }
-    onSave({ ...f, amount: amt, paidBy: (f.paidBy || "Me").trim() || "Me", paidTo: (f.paidTo || "").trim(), description: f.description.trim(), split });
+    onSave({ ...f, amount: amt, paidBy: (f.paidBy || "Me").trim() || "Me", paidTo: (f.paidTo || "").trim(), description: f.description.trim(), split, attachments: keepPaths }, photos.map((p) => p.blob), removedPaths);
   };
   return (
     <Card className="p-3 sm:p-4 border-slate-300 ring-2 ring-slate-100">
@@ -890,6 +981,10 @@ function EditRow({ expense, categories, people, payees, onSave, onCancel }) {
         <Divide className="w-3.5 h-3.5 text-slate-400" /> Split this expense
       </label>
       {splitOn && <div className="mt-2"><SplitEditor amount={f.amount} people={people} shares={shares} setShares={setShares} /></div>}
+      <div className="mt-2.5">
+        <p className="text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5" /> Receipt photos</p>
+        <PhotoPicker photos={photos} setPhotos={setPhotos} existing={keepPaths} onRemoveExisting={(p) => { setKeepPaths((k) => k.filter((x) => x !== p)); setRemovedPaths((r) => [...r, p]); }} />
+      </div>
       {err && <p className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-2">{err}</p>}
       <div className="flex justify-end gap-2 mt-3">
         <button onClick={onCancel} className="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:bg-slate-100">Cancel</button>
@@ -906,6 +1001,7 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
   const [sortDir, setSortDir] = useState("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [viewPaths, setViewPaths] = useState(null);
   const [filters, setFilters] = useState({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" });
 
   const filtered = useMemo(() => {
@@ -975,11 +1071,12 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
         {filtered.length === 0 ? (
           <Card className="p-10 text-center"><Receipt className="w-8 h-8 text-slate-300 mx-auto mb-2" /><p className="text-slate-400 text-sm">No transactions match your filters.</p></Card>
         ) : filtered.map((e) => editId === e.id ? (
-          <EditRow key={e.id} expense={e} categories={categories} people={peopleInData} payees={payeesInData} onCancel={() => setEditId(null)} onSave={(u) => { onUpdate(u); setEditId(null); }} />
+          <EditRow key={e.id} expense={e} categories={categories} people={peopleInData} payees={payeesInData} onCancel={() => setEditId(null)} onSave={(u, files, removed) => { onUpdate(u, files, removed); setEditId(null); }} />
         ) : (
-          <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} canEdit={canEdit} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} />
+          <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} canEdit={canEdit} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} onViewPhotos={() => setViewPaths(e.attachments)} />
         ))}
       </div>
+      {viewPaths && <AttachmentViewer paths={viewPaths} onClose={() => setViewPaths(null)} />}
     </div>
   );
 }
@@ -1287,26 +1384,47 @@ export default function App() {
   const ensurePerson = (name) => { const n = (name || "").trim(); if (n && !people.some((p) => p.toLowerCase() === n.toLowerCase())) setPeople((prev) => [...prev, n]); };
   const ensurePayee = (name) => { const n = (name || "").trim(); if (n && !payees.some((p) => p.toLowerCase() === n.toLowerCase())) setPayees((prev) => [...prev, n]); };
 
-  const addExpense = async (e) => {
+  const uploadPhotos = async (bucketId, expenseId, blobs) => {
+    const paths = [];
+    for (let i = 0; i < blobs.length; i++) {
+      const path = `${bucketId}/${expenseId}/${Date.now()}-${i}.jpg`;
+      const { error } = await supabase.storage.from("receipts").upload(path, blobs[i], { contentType: "image/jpeg" });
+      if (error) { console.error(error); flash("A photo failed to upload."); continue; }
+      paths.push(path);
+    }
+    return paths;
+  };
+
+  const addExpense = async (e, files = []) => {
     ensurePerson(e.paidBy);
     ensurePayee(e.paidTo);
     const row = { bucket_id: selectedId, user_id: user.id, amount: e.amount, category: e.category, description: e.description, date: e.date, method: e.method, paid_by: e.paidBy, paid_to: e.paidTo || "", split: e.split || null };
     const { data, error } = await supabase.from("expenses").insert(row).select().single();
     if (error) { flash("Couldn't save expense."); console.error(error); return; }
-    setExpenses((prev) => [rowToExpense(data), ...prev]);
+    let attachments = [];
+    if (files.length) {
+      attachments = await uploadPhotos(selectedId, data.id, files.slice(0, MAX_PHOTOS));
+      if (attachments.length) await supabase.from("expenses").update({ attachments }).eq("id", data.id);
+    }
+    setExpenses((prev) => [rowToExpense({ ...data, attachments }), ...prev]);
   };
-  const updateExpense = async (u) => {
+  const updateExpense = async (u, newFiles = [], removedPaths = []) => {
     ensurePerson(u.paidBy);
     ensurePayee(u.paidTo);
-    const { error } = await supabase.from("expenses").update({ amount: u.amount, category: u.category, description: u.description, date: u.date, method: u.method, paid_by: u.paidBy, paid_to: u.paidTo || "", split: u.split || null }).eq("id", u.id);
+    let attachments = u.attachments || [];
+    if (removedPaths.length) supabase.storage.from("receipts").remove(removedPaths).then(({ error }) => error && console.error(error));
+    if (newFiles.length) attachments = [...attachments, ...(await uploadPhotos(selectedId, u.id, newFiles))].slice(0, MAX_PHOTOS);
+    const { error } = await supabase.from("expenses").update({ amount: u.amount, category: u.category, description: u.description, date: u.date, method: u.method, paid_by: u.paidBy, paid_to: u.paidTo || "", split: u.split || null, attachments }).eq("id", u.id);
     if (error) { flash("Couldn't update."); return; }
-    setExpenses((prev) => prev.map((x) => (x.id === u.id ? { ...u } : x)));
+    setExpenses((prev) => prev.map((x) => (x.id === u.id ? { ...u, attachments } : x)));
   };
   const deleteExpense = async (id) => {
     const prev = expenses;
+    const target = prev.find((x) => x.id === id);
     setExpenses((p) => p.filter((x) => x.id !== id));
     const { error } = await supabase.from("expenses").delete().eq("id", id);
-    if (error) { flash("Couldn't delete."); setExpenses(prev); }
+    if (error) { flash("Couldn't delete."); setExpenses(prev); return; }
+    if (target?.attachments?.length) supabase.storage.from("receipts").remove(target.attachments).then(({ error: se }) => se && console.error(se));
   };
 
   /* ---- bucket actions ---- */
@@ -1363,8 +1481,10 @@ export default function App() {
     flash("Bucket deleted.");
   };
   const clearBucket = async () => {
+    const allPaths = expenses.flatMap((e) => e.attachments || []);
     const { error } = await supabase.from("expenses").delete().eq("bucket_id", selectedId);
     if (error) { flash("Couldn't clear."); return; }
+    if (allPaths.length) supabase.storage.from("receipts").remove(allPaths).then(({ error: se }) => se && console.error(se));
     setExpenses([]);
     flash("All expenses cleared.");
   };
