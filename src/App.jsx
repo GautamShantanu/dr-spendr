@@ -595,9 +595,19 @@ function Dashboard({ expenses, categories, myName }) {
   /* paid to (payees/vendors) */
   const pt2 = {};
   (payeeScopeAll ? expenses : thisM).forEach((e) => { if (e.paidTo) pt2[e.paidTo] = (pt2[e.paidTo] || 0) + e.amount; });
-  const payeeList = Object.entries(pt2).sort((a, b) => b[1] - a[1]);
-  const payeeGrand = payeeList.reduce((s, [, v]) => s + v, 0);
+  const payeeData = Object.entries(pt2).sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({ name, value, color: PALETTE[i % PALETTE.length] }));
+  const payeeGrand = payeeData.reduce((s, d) => s + d.value, 0);
   const hasPayees = expenses.some((e) => e.paidTo);
+
+  /* payments to payees, last 6 months */
+  const payeeTrend = [];
+  if (hasPayees) {
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      payeeTrend.push({ month: monthLabel(mk), total: expenses.filter((e) => e.paidTo && monthKey(e.date) === mk).reduce((s, e) => s + e.amount, 0), current: mk === thisMK });
+    }
+  }
 
   /* balances from split expenses (all time): paid minus own share */
   const bal = {};
@@ -706,26 +716,53 @@ function Dashboard({ expenses, categories, myName }) {
                 <div className="flex items-center gap-2"><Store className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Paid to</h3></div>
                 <div className="flex gap-1.5"><Pill active={!payeeScopeAll} onClick={() => setPayeeScopeAll(false)}>This month</Pill><Pill active={payeeScopeAll} onClick={() => setPayeeScopeAll(true)}>All time</Pill></div>
               </div>
-              {payeeList.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No payee payments in this period.</p> : (
-                <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                  {payeeList.map(([payee, amt], i) => {
-                    const p = payeeGrand > 0 ? (amt / payeeGrand) * 100 : 0;
-                    const color = PALETTE[i % PALETTE.length];
-                    return (
-                      <div key={payee}>
-                        <div className="flex items-center justify-between text-sm mb-1">
-                          <span className="font-medium text-slate-700 flex items-center gap-1.5">
-                            <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold text-white" style={{ background: color }}>{payee.slice(0, 1).toUpperCase()}</span>
-                            {payee}
-                          </span>
-                          <span className="font-semibold text-slate-900">{fmtINR(amt)}</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${p}%`, background: color }} /></div>
+              {payeeData.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No payee payments in this period.</p> : (
+                <>
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    <div className="relative w-full sm:w-44 h-44 shrink-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={payeeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={2} stroke="none">
+                            {payeeData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                          </Pie>
+                          <Tooltip formatter={(v) => fmtINR(v)} contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 13 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wide">Total</span>
+                        <span className="text-base font-bold text-slate-900">{fmtINRshort(payeeGrand)}</span>
                       </div>
-                    );
-                  })}
-                  <div className="pt-2 mt-1 border-t border-slate-100 text-xs text-slate-500 text-right">Total to payees: <strong className="text-slate-700">{fmtINR(payeeGrand)}</strong></div>
-                </div>
+                    </div>
+                    <div className="flex-1 w-full space-y-1.5 max-h-44 overflow-y-auto">
+                      {payeeData.map((d) => (
+                        <div key={d.name} className="flex items-center gap-2 text-sm">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                          <span className="text-slate-600 truncate flex-1">{d.name}</span>
+                          <span className="font-medium text-slate-900">{fmtINR(d.value)}</span>
+                          <span className="text-slate-400 text-xs w-9 text-right">{payeeGrand > 0 ? Math.round((d.value / payeeGrand) * 100) : 0}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {payeeTrend.some((t) => t.total > 0) && (
+                    <div className="mt-4 pt-3 border-t border-slate-100">
+                      <p className="text-xs font-medium text-slate-500 mb-2">Payments to payees · last 6 months</p>
+                      <div className="h-32">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={payeeTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f6" />
+                            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                            <YAxis tickFormatter={fmtINRshort} tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                            <Tooltip formatter={(v) => fmtINR(v)} cursor={{ fill: "#f1f5f9" }} contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 13 }} />
+                            <Bar dataKey="total" radius={[5, 5, 0, 0]} maxBarSize={36}>
+                              {payeeTrend.map((d, i) => <Cell key={i} fill={d.current ? "#3FB8C4" : "#cbd5e1"} />)}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
           )}
