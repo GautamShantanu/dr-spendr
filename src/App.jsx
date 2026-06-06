@@ -1030,6 +1030,9 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
   const [editId, setEditId] = useState(null);
   const [viewPaths, setViewPaths] = useState(null);
   const [filters, setFilters] = useState({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" });
+  const PAGE_SIZE = 50;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters, search, sortBy, sortDir]);
 
   const filtered = useMemo(() => {
     let list = expenses.filter((e) => {
@@ -1097,13 +1100,21 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
       <div className="space-y-2">
         {filtered.length === 0 ? (
           <Card className="p-10 text-center"><Receipt className="w-8 h-8 text-slate-300 mx-auto mb-2" /><p className="text-slate-400 text-sm">No transactions match your filters.</p></Card>
-        ) : filtered.map((e) => editId === e.id ? (
+        ) : filtered.slice(0, visibleCount).map((e) => editId === e.id ? (
           <EditRow key={e.id} expense={e} categories={categories} people={peopleInData} payees={payeesInData} onCancel={() => setEditId(null)} onSave={(u, files, removed) => { onUpdate(u, files, removed); setEditId(null); }} />
         ) : (
           <TxnRow key={e.id} expense={e} cat={catMap[e.category]} myName={myName} canEdit={canEdit} onEdit={() => setEditId(e.id)} onDelete={() => onDelete(e.id)} onViewPhotos={() => setViewPaths(e.attachments)}
             onFilter={(patch) => { setFilters((f) => ({ ...f, ...patch })); setShowFilters(true); }} />
         ))}
       </div>
+      {filtered.length > visibleCount && (
+        <button onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+          className="w-full py-3 rounded-2xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 flex items-center justify-center gap-2">
+          <ChevronDown className="w-4 h-4" />
+          Show {Math.min(PAGE_SIZE, filtered.length - visibleCount)} more
+          <span className="text-slate-400 font-normal">· {visibleCount} of {filtered.length} shown</span>
+        </button>
+      )}
       {viewPaths && <AttachmentViewer paths={viewPaths} onClose={() => setViewPaths(null)} />}
     </div>
   );
