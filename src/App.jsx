@@ -1348,7 +1348,12 @@ export default function App() {
         setAllMembers([{ bucket_id: created.id, email: myEmail, user_id: user.id, role: "owner", id: "tmp" }]);
       }
       setBuckets(list);
-      setSelectedId((prev) => (prev && list.some((b) => b.id === prev) ? prev : list[0].id));
+      const remembered = localStorage.getItem("drspendr:lastBucket:" + user.id);
+      setSelectedId((prev) => {
+        if (prev && list.some((b) => b.id === prev)) return prev;
+        if (remembered && list.some((b) => b.id === remembered)) return remembered;
+        return list[0].id;
+      });
     } catch (e) {
       flash("Couldn't load buckets — check the database setup.");
       console.error(e);
@@ -1383,6 +1388,11 @@ export default function App() {
   }, [myName]);
 
   useEffect(() => { if (selectedId) loadBucketData(selectedId); }, [selectedId, loadBucketData]);
+
+  /* remember the last opened bucket per user (restored on next visit) */
+  useEffect(() => {
+    if (selectedId && user) localStorage.setItem("drspendr:lastBucket:" + user.id, selectedId);
+  }, [selectedId, user]);
 
   /* ---- realtime + refetch on focus (keeps shared buckets in sync) ---- */
   useEffect(() => {
