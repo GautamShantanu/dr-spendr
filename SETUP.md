@@ -1,4 +1,4 @@
-# Spendr — Setup Guide
+# Dr Spendr — Setup Guide
 
 A personal **and** shared expense tracker. Each "bucket" is a spending space:
 keep a **Personal** one for yourself and a **Joint** one you share with your wife

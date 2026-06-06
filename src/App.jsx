@@ -152,7 +152,7 @@ function AuthScreen() {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center mb-3 shadow-lg">
             <Wallet className="w-7 h-7 text-emerald-400" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">Spendr</h1>
+          <h1 className="text-xl font-bold text-slate-900">Dr Spendr</h1>
           <p className="text-sm text-slate-500">Personal & shared expense tracking</p>
         </div>
 
@@ -1336,7 +1336,7 @@ export default function App() {
       if (Array.isArray(parsed.payees)) setPayees((prev) => Array.from(new Set([...prev, ...parsed.payees])));
       await loadBucketData(selectedId);
       flash(`Imported ${rows.length} expenses.`);
-    } catch (e) { flash("Import failed — is it a Spendr export file?"); console.error(e); }
+    } catch (e) { flash("Import failed — is it a Dr Spendr export file?"); console.error(e); }
   };
 
   /* ---- derived ---- */
