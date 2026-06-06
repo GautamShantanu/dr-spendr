@@ -6,7 +6,7 @@ import {
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
   Store, Divide, Eye, Paperclip, ImagePlus, FileText, Landmark,
-  ArrowLeftRight, Building2, Zap,
+  ArrowLeftRight, Building2, Zap, CalendarClock,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -37,6 +37,7 @@ const PAYMENT_METHODS = [
   { id: "rtgs", label: "RTGS", icon: Building2 },
   { id: "imps", label: "IMPS", icon: Zap },
   { id: "loan", label: "Loan", icon: Landmark },
+  { id: "emi", label: "EMI", icon: CalendarClock },
   { id: "other", label: "Other", icon: MoreHorizontal },
 ];
 const EMOJI_CHOICES = ["🍜","🍕","☕","🛒","🚕","🚗","⛽","🏠","💡","📱","🛍️","👕","💊","🏥","🎬","🎮","🎵","✈️","🏨","🏝️","📦","🎁","💰","📚","🐶","💪","💅","🍻"];
