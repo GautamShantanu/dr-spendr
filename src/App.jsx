@@ -193,6 +193,42 @@ function CategoryInput({ value, onChange, categories, compact }) {
   );
 }
 
+/* type-to-search filter dropdown over a list of names, with an "All" choice */
+function ComboFilter({ value, onChange, options, placeholder = "All" }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const matches = q ? options.filter((o) => o.toLowerCase().includes(q.toLowerCase())) : options;
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        value={open ? q : (value === "all" ? "" : value)}
+        onFocus={() => { setOpen(true); setQ(""); }}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && matches.length) { onChange(matches[0]); setOpen(false); e.currentTarget.blur(); } }}
+        placeholder={placeholder}
+        className="w-full px-2.5 pr-7 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400 text-slate-800"
+      />
+      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+          <button onMouseDown={() => { onChange("all"); setOpen(false); }} className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-500 ${value === "all" ? "bg-slate-50 font-medium" : ""}`}>All</button>
+          {matches.map((o) => (
+            <button key={o} onMouseDown={() => { onChange(o); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-700 ${o === value ? "bg-slate-50 font-medium" : ""}`}>{o}</button>
+          ))}
+          {q && matches.length === 0 && <p className="px-3 py-2 text-sm text-slate-400">No match.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================== auth screen ============================== */
 
 function AuthScreen() {
@@ -1123,8 +1159,8 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">To</label><input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400" /></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Category</label><select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}</select></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Payment</label><select value={filters.method} onChange={(e) => setFilters({ ...filters, method: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></div>
-            <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid by</label><select value={filters.person} onChange={(e) => setFilters({ ...filters, person: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{peopleInData.map((p) => <option key={p} value={p}>{p}</option>)}</select></div>
-            {payeesInData.length > 0 && <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid to</label><select value={filters.payee} onChange={(e) => setFilters({ ...filters, payee: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{payeesInData.map((p) => <option key={p} value={p}>{p}</option>)}</select></div>}
+            <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid by</label><ComboFilter value={filters.person} onChange={(v) => setFilters({ ...filters, person: v })} options={peopleInData} placeholder="All — type to search" /></div>
+            {payeesInData.length > 0 && <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid to</label><ComboFilter value={filters.payee} onChange={(v) => setFilters({ ...filters, payee: v })} options={payeesInData} placeholder="All — type to search" /></div>}
             {activeFilters > 0 && <button onClick={() => setFilters({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" })} className="col-span-2 lg:col-span-5 text-xs text-slate-500 hover:text-rose-500 text-left">Clear all filters</button>}
           </div>
         )}
