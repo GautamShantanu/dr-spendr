@@ -83,7 +83,9 @@ alter table public.expenses        enable row level security;
 -- buckets
 drop policy if exists buckets_select on public.buckets;
 create policy buckets_select on public.buckets for select
-  using (id in (select public.my_bucket_ids()));
+  using (owner_id = auth.uid() or id in (select public.my_bucket_ids()));
+  -- owner_id check matters: the app creates a bucket with insert+returning
+  -- BEFORE the membership row exists, and RETURNING must pass this policy.
 
 drop policy if exists buckets_insert on public.buckets;
 create policy buckets_insert on public.buckets for insert
