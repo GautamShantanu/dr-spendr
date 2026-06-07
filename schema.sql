@@ -320,6 +320,21 @@ create policy audit_select on public.audit_log for select
   using (public.my_role(bucket_id) in ('owner','manager','viewer'));
 -- no insert/update/delete policies: only the trigger (security definer) writes
 
+-- ---------- Push notification subscriptions ----------
+-- One row per device that enabled notifications. Each user manages only
+-- their own subscriptions; the Vercel sender reads them with the service key.
+
+create table if not exists public.push_subscriptions (
+  endpoint   text primary key,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  keys       jsonb not null,
+  created_at timestamptz not null default now()
+);
+alter table public.push_subscriptions enable row level security;
+drop policy if exists push_own on public.push_subscriptions;
+create policy push_own on public.push_subscriptions for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 -- ---------- Receipt photo storage ----------
 -- Private bucket; files live at  <bucket_id>/<expense_id>/<file>.jpg
 -- Access mirrors the expense roles: owner/manager upload & delete, everyone in
