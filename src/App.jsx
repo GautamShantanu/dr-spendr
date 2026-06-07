@@ -395,6 +395,7 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
   const [invite, setInvite] = useState("");
   const [inviteRole, setInviteRole] = useState("manager");
   const [invitePayee, setInvitePayee] = useState("");
+  const [inviteName, setInviteName] = useState("");
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -402,9 +403,10 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
     const e = invite.trim().toLowerCase();
     setMsg("");
     if (!e || !e.includes("@")) { setMsg("Enter a valid email."); return; }
-    if (inviteRole === "payee" && !invitePayee) { setMsg("Pick which payee they are."); return; }
-    const res = await onInvite(e, inviteRole, inviteRole === "payee" ? invitePayee : null);
-    if (res?.error) setMsg(res.error); else { setInvite(""); setMsg(`Invited ${e} as ${ROLE_LABELS[inviteRole].toLowerCase()}.`); }
+    if (inviteRole === "payee" && !invitePayee.trim()) { setMsg("Enter which payee they are."); return; }
+    const res = await onInvite(e, inviteRole, inviteRole === "payee" ? invitePayee.trim() : null, inviteName.trim() || null);
+    if (res?.error) setMsg(res.error);
+    else { setInvite(""); setInviteName(""); setInvitePayee(""); setMsg(`Invited ${e} as ${ROLE_LABELS[inviteRole].toLowerCase()}.`); }
   };
 
   return (
@@ -498,20 +500,24 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
                 </div>
                 <button onClick={doInvite} className="px-4 rounded-xl bg-emerald-600 text-white text-sm hover:bg-emerald-700">Invite</button>
               </div>
-              <div className="flex gap-2 mt-2">
+              <div className="flex flex-col sm:flex-row gap-2 mt-2">
                 <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
                   <option value="manager">Manager — can add & edit expenses</option>
                   <option value="viewer">Viewer — can see everything, edit nothing</option>
                   <option value="payee">Payee — sees only payments made to them</option>
                 </select>
-                {inviteRole === "payee" && (
-                  <select value={invitePayee} onChange={(e) => setInvitePayee(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
-                    <option value="">Which payee?</option>
-                    {payees.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                {inviteRole === "payee" ? (
+                  <div className="flex-1"><PaidByInput value={invitePayee} onChange={setInvitePayee} people={payees} compact placeholder="Payee name (new or existing)" icon={Store} /></div>
+                ) : (
+                  <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Name (goes in payer list)"
+                    className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:bg-white focus:border-slate-400" />
                 )}
               </div>
-              {inviteRole === "payee" && payees.length === 0 && <p className="text-[11px] text-amber-600 mt-1.5">Add payees first (Manage → Payees), then link the invite to one.</p>}
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                {inviteRole === "payee"
+                  ? "New payee names are added to the payee list right away."
+                  : "The name is added to the payer list immediately — no need to wait for them to join. If left blank, the email name is used."}
+              </p>
               {msg && <p className="text-xs text-slate-500 mt-1.5">{msg}</p>}
               <p className="text-[11px] text-slate-400 mt-1.5">They get access the moment they sign in with that email.</p>
             </div>
@@ -1740,9 +1746,12 @@ export default function App() {
     setBuckets((prev) => prev.map((b) => (b.id === selectedId ? { ...b, name, emoji } : b)));
     flash("Saved.");
   };
-  const inviteMember = async (email, role = "manager", payeeName = null) => {
-    const { error } = await supabase.from("bucket_members").insert({ bucket_id: selectedId, email, role, payee_name: payeeName });
+  const inviteMember = async (email, role = "manager", payeeName = null, displayName = null) => {
+    const { error } = await supabase.from("bucket_members").insert({ bucket_id: selectedId, email, role, payee_name: payeeName, display_name: displayName });
     if (error) return { error: error.code === "23505" ? "Already invited." : error.message };
+    // make the invitee usable right away, before they ever sign in
+    if (role === "payee") ensurePayee(payeeName);
+    else ensurePerson(displayName || email.split("@")[0]);
     await loadBuckets();
     return {};
   };

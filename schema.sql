@@ -136,10 +136,11 @@ begin
   for r in
     update public.bucket_members m
     set user_id = auth.uid(),
-        display_name = coalesce(dname, split_part(m.email, '@', 1))
+        -- a name given by the inviter wins; otherwise the account's own name
+        display_name = coalesce(m.display_name, dname, split_part(m.email, '@', 1))
     where lower(m.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
       and (m.user_id is distinct from auth.uid() or m.display_name is null)
-    returning m.bucket_id, m.role, coalesce(dname, split_part(m.email, '@', 1)) as nm
+    returning m.bucket_id, m.role, coalesce(m.display_name, dname, split_part(m.email, '@', 1)) as nm
   loop
     if r.role <> 'payee' then
       update public.bucket_settings s
