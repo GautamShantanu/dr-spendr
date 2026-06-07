@@ -393,7 +393,7 @@ function BucketSwitcher({ buckets, selectedId, onSelect, onNew, onManage, member
 
 /* ============================== manage bucket modal ============================== */
 
-function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, onAddPerson, onSetMemberName, canEdit, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete }) {
+function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, onAddPerson, onSetMemberName, canEdit, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete, onExport }) {
   const [name, setName] = useState(bucket.name);
   const [emoji, setEmoji] = useState(bucket.emoji || "💼");
   const [invite, setInvite] = useState("");
@@ -551,9 +551,13 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
           <div className="pt-3 border-t border-slate-100">
             {isOwner ? (
               confirmDelete ? (
-                <div className="flex items-center gap-2">
-                  <button onClick={onDelete} className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Delete bucket & all its expenses</button>
-                  <button onClick={() => setConfirmDelete(false)} className="px-3 py-2 rounded-xl text-slate-600 text-sm hover:bg-slate-100">Cancel</button>
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">💡 Export a backup first — it can be imported into a new bucket later (receipt photos aren't included).</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={onExport} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 flex items-center gap-1.5"><Download className="w-4 h-4" /> Export first</button>
+                    <button onClick={onDelete} className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Delete bucket & all its expenses</button>
+                    <button onClick={() => setConfirmDelete(false)} className="px-3 py-2 rounded-xl text-slate-600 text-sm hover:bg-slate-100">Cancel</button>
+                  </div>
                 </div>
               ) : (
                 <button onClick={() => setConfirmDelete(true)} className="text-sm text-rose-600 hover:text-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Delete this bucket</button>
@@ -1760,6 +1764,11 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           {canEdit && <button onClick={() => fileRef.current?.click()} className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm hover:bg-slate-50 flex items-center gap-1.5"><Upload className="w-4 h-4" /> Import</button>}
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ""; }} />
         </div>
+        <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-500 space-y-1">
+          <p className="font-medium text-slate-600">What Import expects</p>
+          <p>A JSON file created by <strong>Export JSON</strong> (from any bucket). Format: <code className="bg-white px-1 rounded">{'{ "expenses": [...], "categories": [...], "people": [...], "payees": [...], "budgets": {} }'}</code> — only <code className="bg-white px-1 rounded">expenses</code> is required; each expense needs <code className="bg-white px-1 rounded">amount</code> and ideally <code className="bg-white px-1 rounded">date</code> (YYYY-MM-DD), <code className="bg-white px-1 rounded">category</code>, <code className="bg-white px-1 rounded">description</code>, <code className="bg-white px-1 rounded">method</code>, <code className="bg-white px-1 rounded">paidBy</code>, <code className="bg-white px-1 rounded">paidTo</code>.</p>
+          <p>Importing <strong>adds</strong> the expenses to this bucket — it never deletes or overwrites existing ones (import twice = duplicates). Categories, payers, payees and budgets from the file are merged in. Receipt photos are not part of backups.</p>
+        </div>
       </Card>
 
       {/* danger */}
@@ -1768,9 +1777,13 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-4 h-4 text-rose-500" /><h3 className="font-semibold text-rose-700">Clear this bucket</h3></div>
           <p className="text-sm text-slate-500 mb-3">Delete every expense in <strong>{bucketName}</strong>. Categories, payers and payees stay. This cannot be undone.</p>
           {confirmClear ? (
-            <div className="flex items-center gap-2">
-              <button onClick={() => { onClearBucket(); setConfirmClear(false); }} className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Delete all {expenses.length} expenses</button>
-              <button onClick={() => setConfirmClear(false)} className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-sm hover:bg-slate-50">Cancel</button>
+            <div className="space-y-2">
+              <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">💡 Export a backup first — the file can be imported again to restore everything (except receipt photos).</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={onExport} className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 flex items-center gap-1.5"><Download className="w-4 h-4" /> Export backup first</button>
+                <button onClick={() => { onClearBucket(); setConfirmClear(false); }} className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Delete all {expenses.length} expenses</button>
+                <button onClick={() => setConfirmClear(false)} className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-sm hover:bg-slate-50">Cancel</button>
+              </div>
             </div>
           ) : (
             <button onClick={() => setConfirmClear(true)} className="px-4 py-2 rounded-xl bg-white border border-rose-300 text-rose-600 text-sm font-medium hover:bg-rose-50">Clear all expenses</button>
@@ -2227,7 +2240,7 @@ export default function App() {
           bucket={currentBucket} members={bucketMembers} isOwner={isOwner} myEmail={myEmail} payees={payees}
           people={people} canEdit={canEdit} onAddPerson={(n) => { ensurePerson(n); flash(`Added ${n} to payers.`); }} onSetMemberName={setMemberName}
           onClose={() => setManageOpen(false)} onRename={renameBucket} onInvite={inviteMember} onChangeRole={changeMemberRole}
-          onRemoveMember={removeMember} onLeave={leaveBucket} onDelete={deleteBucket}
+          onRemoveMember={removeMember} onLeave={leaveBucket} onDelete={deleteBucket} onExport={exportData}
         />
       )}
 
