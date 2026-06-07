@@ -1358,15 +1358,46 @@ function describeEvent(e) {
     return `edited expense ${label}${changed.length ? ` (${changed.join(", ")})` : ""}`;
   }
   if (e.table_name === "bucket_members") {
-    if (e.action === "insert") return `invited ${n.email} as ${(ROLE_LABELS[n.role] || n.role || "").toLowerCase()}`;
+    if (e.action === "insert") return `invited ${n.email} as ${(ROLE_LABELS[n.role] || n.role || "").toLowerCase()}${n.display_name ? ` ("${n.display_name}")` : ""}`;
     if (e.action === "delete") return `removed ${o.email}`;
     if (!o.user_id && n.user_id) return `${n.display_name || n.email} joined (activated)`;
     if (o.role !== n.role) return `changed ${n.email} to ${(ROLE_LABELS[n.role] || n.role || "").toLowerCase()}`;
+    if ((o.display_name || "") !== (n.display_name || "")) return `named ${n.email} "${n.display_name}"`;
+    if ((o.payee_name || "") !== (n.payee_name || "")) return `linked ${n.email} to payee "${n.payee_name}"`;
     return `updated member ${n.email}`;
   }
   if (e.table_name === "bucket_settings") {
-    const changed = ["categories", "people", "payees"].filter((k) => JSON.stringify(o[k] ?? null) !== JSON.stringify(n[k] ?? null));
-    return `updated ${changed.join(", ") || "settings"}`;
+    if (e.action === "insert") return "set up bucket settings";
+    const parts = [];
+    const few = (arr) => arr.length > 4 ? `${arr.slice(0, 4).join(", ")} +${arr.length - 4} more` : arr.join(", ");
+    // budgets: which month, what value
+    const ob = o.budgets || {}, nb = n.budgets || {};
+    for (const k of new Set([...Object.keys(ob), ...Object.keys(nb)])) {
+      if (JSON.stringify(ob[k]) !== JSON.stringify(nb[k])) {
+        parts.push(nb[k] == null ? `removed the ${monthLabel(k)} budget` : `set ${monthLabel(k)} budget to ${fmtINR(nb[k])}`);
+      }
+    }
+    // payers/payees: who was added or removed
+    const nameDiff = (key, label) => {
+      const oo = new Set(Array.isArray(o[key]) ? o[key] : []);
+      const nn = new Set(Array.isArray(n[key]) ? n[key] : []);
+      const added = [...nn].filter((x) => !oo.has(x));
+      const removed = [...oo].filter((x) => !nn.has(x));
+      if (added.length) parts.push(`added ${label}${added.length > 1 ? "s" : ""} ${few(added)}`);
+      if (removed.length) parts.push(`removed ${label}${removed.length > 1 ? "s" : ""} ${few(removed)}`);
+    };
+    nameDiff("people", "payer");
+    nameDiff("payees", "payee");
+    if (JSON.stringify(o.categories ?? null) !== JSON.stringify(n.categories ?? null)) {
+      const oc = Array.isArray(o.categories) ? o.categories : [], nc = Array.isArray(n.categories) ? n.categories : [];
+      const ocIds = new Set(oc.map((c) => c.id)), ncIds = new Set(nc.map((c) => c.id));
+      const addedC = nc.filter((c) => !ocIds.has(c.id)).map((c) => c.name);
+      const removedC = oc.filter((c) => !ncIds.has(c.id)).map((c) => c.name);
+      if (addedC.length) parts.push(`added categor${addedC.length > 1 ? "ies" : "y"} ${few(addedC)}`);
+      if (removedC.length) parts.push(`removed categor${removedC.length > 1 ? "ies" : "y"} ${few(removedC)}`);
+      if (!addedC.length && !removedC.length) parts.push("edited categories");
+    }
+    return parts.join("; ") || "updated settings";
   }
   if (e.table_name === "buckets") {
     if (e.action === "insert") return "created this bucket";
