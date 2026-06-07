@@ -1693,6 +1693,7 @@ export default function App() {
   const [manageOpen, setManageOpen] = useState(false);
   const [toast, setToast] = useState("");
   const settingsHydrated = useRef(false);
+  const loadedSettings = useRef({}); // last-known DB values, to write only what changed
 
   const user = session?.user || null;
   const myEmail = (user?.email || "").toLowerCase();
@@ -1762,10 +1763,17 @@ export default function App() {
         await supabase.from("bucket_settings").insert({ bucket_id: bucketId, categories: DEFAULT_CATEGORIES, people: [myName] });
         st = { categories: DEFAULT_CATEGORIES, people: [myName] };
       }
-      setCategories(Array.isArray(st.categories) && st.categories.length ? st.categories : DEFAULT_CATEGORIES);
-      setPeople(Array.isArray(st.people) ? st.people : [myName]);
-      setPayees(Array.isArray(st.payees) ? st.payees : []);
-      setBudgets(st.budgets && typeof st.budgets === "object" ? st.budgets : {});
+      const loaded = {
+        categories: Array.isArray(st.categories) && st.categories.length ? st.categories : DEFAULT_CATEGORIES,
+        people: Array.isArray(st.people) ? st.people : [myName],
+        payees: Array.isArray(st.payees) ? st.payees : [],
+        budgets: st.budgets && typeof st.budgets === "object" ? st.budgets : {},
+      };
+      setCategories(loaded.categories);
+      setPeople(loaded.people);
+      setPayees(loaded.payees);
+      setBudgets(loaded.budgets);
+      loadedSettings.current = loaded;
     } catch (e) {
       flash("Couldn't load this bucket.");
       console.error(e);
@@ -1795,13 +1803,27 @@ export default function App() {
     return () => { document.removeEventListener("visibilitychange", onFocus); supabase.removeChannel(ch); };
   }, [selectedId, loadBucketData]);
 
-  /* ---- persist settings (categories/people/payees) when they change ---- */
+  /* ---- persist settings when they change ----
+     Only fields that actually changed in THIS session are written. Writing
+     the whole blob used to let a stale session clobber fields (e.g. default
+     categories overwriting imported ones) just because a different field
+     changed. */
   useEffect(() => {
     if (!selectedId || !settingsHydrated.current) return;
     const role = buckets.find((b) => b.id === selectedId)?.role;
     if (role !== "owner" && role !== "manager") return; // viewers/payees can't write settings
     const t = setTimeout(() => {
-      supabase.from("bucket_settings").upsert({ bucket_id: selectedId, categories, people, payees, budgets, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) console.error(error); });
+      const state = { categories, people, payees, budgets };
+      const patch = {};
+      for (const k of Object.keys(state)) {
+        if (JSON.stringify(state[k]) !== JSON.stringify(loadedSettings.current[k])) patch[k] = state[k];
+      }
+      if (!Object.keys(patch).length) return;
+      supabase.from("bucket_settings").update({ ...patch, updated_at: new Date().toISOString() }).eq("bucket_id", selectedId)
+        .then(({ error }) => {
+          if (error) { console.error(error); return; }
+          loadedSettings.current = { ...loadedSettings.current, ...patch };
+        });
     }, 400);
     return () => clearTimeout(t);
   }, [categories, people, payees, budgets, selectedId, buckets]);
