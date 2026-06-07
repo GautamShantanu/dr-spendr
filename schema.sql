@@ -25,6 +25,7 @@ create table if not exists public.bucket_members (
   user_id    uuid references auth.users(id) on delete set null,
   role       text not null default 'manager',  -- 'owner' | 'manager' | 'viewer' | 'payee'
   payee_name text,                             -- for role 'payee': which payee they are
+  display_name text,                           -- set when the invitee signs in (claim_memberships)
   created_at timestamptz not null default now(),
   unique (bucket_id, email)
 );
@@ -62,6 +63,7 @@ alter table public.expenses        add column if not exists split jsonb;
 alter table public.expenses        add column if not exists attachments jsonb not null default '[]'::jsonb;
 alter table public.bucket_settings add column if not exists payees jsonb not null default '[]'::jsonb;
 alter table public.bucket_members  add column if not exists payee_name text;
+alter table public.bucket_members  add column if not exists display_name text;
 update public.bucket_members set role = 'manager' where role = 'member';
 
 create index if not exists expenses_bucket_idx on public.expenses(bucket_id);
@@ -114,6 +116,23 @@ as $$
   where bucket_id = b and role = 'payee'
     and (user_id = auth.uid() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')))
   limit 1
+$$;
+
+-- Called by the app on every load: links any invites matching the signed-in
+-- email to the account (user_id) and records the display name. This is what
+-- turns an invite from "Invited" to "Active" in the member list.
+create or replace function public.claim_memberships()
+returns void
+language sql security definer set search_path = public
+as $$
+  update public.bucket_members m
+  set user_id = auth.uid(),
+      display_name = coalesce(
+        (select u.raw_user_meta_data ->> 'display_name' from auth.users u where u.id = auth.uid()),
+        (select u.raw_user_meta_data ->> 'full_name'   from auth.users u where u.id = auth.uid()),
+        split_part(m.email, '@', 1))
+  where lower(m.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    and (m.user_id is distinct from auth.uid() or m.display_name is null)
 $$;
 
 -- ---------- Row Level Security ----------

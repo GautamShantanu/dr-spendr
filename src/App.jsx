@@ -389,7 +389,7 @@ function BucketSwitcher({ buckets, selectedId, onSelect, onNew, onManage, member
 
 /* ============================== manage bucket modal ============================== */
 
-function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete }) {
+function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, onAddPerson, canEdit, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete }) {
   const [name, setName] = useState(bucket.name);
   const [emoji, setEmoji] = useState(bucket.emoji || "💼");
   const [invite, setInvite] = useState("");
@@ -444,14 +444,21 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, onClose,
             <div className="space-y-1.5">
               {members.map((m) => (
                 <div key={m.id} className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-100">
-                  <span className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs flex items-center justify-center font-semibold shrink-0">{m.email.slice(0, 1).toUpperCase()}</span>
+                  <span className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs flex items-center justify-center font-semibold shrink-0">{(m.display_name || m.email).slice(0, 1).toUpperCase()}</span>
                   <span className="flex-1 min-w-0">
-                    <span className="block text-sm text-slate-700 truncate">{m.email}{m.email === myEmail ? " (you)" : ""}</span>
-                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                    <span className="block text-sm text-slate-700 truncate">{m.display_name || m.email}{m.email === myEmail ? " (you)" : ""}</span>
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap">
                       {m.role === "owner" && <Crown className="w-3 h-3 text-amber-500" />}
                       {normalizeRole(m.role) === "payee" && <Eye className="w-3 h-3 text-sky-500" />}
                       {ROLE_LABELS[m.role] || m.role}{normalizeRole(m.role) === "payee" && m.payee_name ? ` · sees payments to ${m.payee_name}` : ""}
+                      <span className={`px-1.5 py-0.5 rounded-md font-medium ${m.user_id ? "text-emerald-700 bg-emerald-50" : "text-amber-600 bg-amber-50"}`}>{m.user_id ? "Active" : "Invited"}</span>
+                      {m.display_name && <span className="truncate">{m.email}</span>}
                     </span>
+                    {canEdit && m.display_name && !people.some((p) => p.toLowerCase() === m.display_name.toLowerCase()) && (
+                      <button onClick={() => onAddPerson(m.display_name)} className="mt-1 text-[11px] text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded-md font-medium inline-flex items-center gap-1">
+                        <Plus className="w-3 h-3" /> Add "{m.display_name}" to paid-by people
+                      </button>
+                    )}
                   </span>
                   {isOwner && m.role !== "owner" && (
                     <>
@@ -1443,6 +1450,9 @@ export default function App() {
   const loadBuckets = useCallback(async () => {
     if (!user) return;
     try {
+      // link any invites for this email to this account + record display name
+      const { error: claimErr } = await supabase.rpc("claim_memberships");
+      if (claimErr) console.warn("claim_memberships:", claimErr.message); // tolerate pre-migration DB
       const { data: bks, error } = await supabase.from("buckets").select("*").order("created_at", { ascending: true });
       if (error) throw error;
       const { data: mems } = await supabase.from("bucket_members").select("*");
@@ -1774,6 +1784,7 @@ export default function App() {
       {manageOpen && currentBucket && (
         <ManageBucketModal
           bucket={currentBucket} members={bucketMembers} isOwner={isOwner} myEmail={myEmail} payees={payees}
+          people={people} canEdit={canEdit} onAddPerson={(n) => { ensurePerson(n); flash(`Added ${n} to people.`); }}
           onClose={() => setManageOpen(false)} onRename={renameBucket} onInvite={inviteMember} onChangeRole={changeMemberRole}
           onRemoveMember={removeMember} onLeave={leaveBucket} onDelete={deleteBucket}
         />
