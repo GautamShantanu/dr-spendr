@@ -174,8 +174,24 @@ export default function App() {
   }, [categories, people, payees, budgets, selectedId, buckets]);
 
   /* ---- expense CRUD ---- */
-  const ensurePerson = (name) => { const n = (name || "").trim(); if (n && !people.some((p) => p.toLowerCase() === n.toLowerCase())) setPeople((prev) => [...prev, n]); };
-  const ensurePayee = (name) => { const n = (name || "").trim(); if (n && !payees.some((p) => p.toLowerCase() === n.toLowerCase())) setPayees((prev) => [...prev, n]); };
+  // Add payer/payee names to the bucket lists AND persist immediately. Writing
+  // straight to the DB (rather than relying on the debounced settings save)
+  // avoids a race where the post-insert realtime refetch reloads the old
+  // settings and wipes the just-added name before the debounce fires.
+  const addNames = async ({ payers = [], payees: py = [] } = {}) => {
+    const np = [...people], npy = [...payees];
+    let changed = false;
+    for (const raw of payers) { const n = (raw || "").trim(); if (n && !np.some((p) => p.toLowerCase() === n.toLowerCase())) { np.push(n); changed = true; } }
+    for (const raw of py) { const n = (raw || "").trim(); if (n && !npy.some((p) => p.toLowerCase() === n.toLowerCase())) { npy.push(n); changed = true; } }
+    if (!changed) return;
+    setPeople(np); setPayees(npy);
+    loadedSettings.current = { ...loadedSettings.current, people: np, payees: npy };
+    const role = buckets.find((b) => b.id === selectedId)?.role;
+    if (role !== "owner" && role !== "manager") return;
+    const { error } = await supabase.from("bucket_settings").update({ people: np, payees: npy, updated_at: new Date().toISOString() }).eq("bucket_id", selectedId);
+    if (error) console.error(error);
+  };
+  const ensurePerson = (name) => addNames({ payers: [name] });
 
   const uploadPhotos = async (bucketId, expenseId, blobs) => {
     const paths = [];
@@ -189,8 +205,7 @@ export default function App() {
   };
 
   const addExpense = async (e, files = []) => {
-    ensurePerson(e.paidBy);
-    ensurePayee(e.paidTo);
+    await addNames({ payers: [e.paidBy], payees: [e.paidTo] });
     const row = { bucket_id: selectedId, user_id: user.id, amount: e.amount, category: e.category, description: e.description, date: e.date, method: e.method, paid_by: e.paidBy, paid_to: e.paidTo || "", split: e.split || null };
     const { data, error } = await supabase.from("expenses").insert(row).select().single();
     if (error) { flash("Couldn't save expense."); console.error(error); return; }
@@ -202,8 +217,7 @@ export default function App() {
     setExpenses((prev) => [rowToExpense({ ...data, attachments }), ...prev]);
   };
   const updateExpense = async (u, newFiles = [], removedPaths = []) => {
-    ensurePerson(u.paidBy);
-    ensurePayee(u.paidTo);
+    await addNames({ payers: [u.paidBy], payees: [u.paidTo] });
     let attachments = u.attachments || [];
     if (removedPaths.length) supabase.storage.from("receipts").remove(removedPaths).then(({ error }) => error && console.error(error));
     if (newFiles.length) attachments = [...attachments, ...(await uploadPhotos(selectedId, u.id, newFiles))].slice(0, MAX_PHOTOS);
@@ -244,8 +258,8 @@ export default function App() {
     const { error } = await supabase.from("bucket_members").insert({ bucket_id: selectedId, email, role, payee_name: payeeName, display_name: displayName });
     if (error) return { error: error.code === "23505" ? "Already invited." : error.message };
     // make the invitee usable right away, before they ever sign in
-    if (role === "payee") ensurePayee(payeeName);
-    else ensurePerson(displayName || email.split("@")[0]);
+    if (role === "payee") await addNames({ payees: [payeeName] });
+    else await addNames({ payers: [displayName || email.split("@")[0]] });
     await loadBuckets();
     return {};
   };
@@ -260,7 +274,7 @@ export default function App() {
   const setMemberName = async (m, name) => {
     const { error } = await supabase.from("bucket_members").update({ display_name: name }).eq("id", m.id);
     if (error) { flash("Couldn't set name."); console.error(error); return; }
-    if (normalizeRole(m.role) === "payee") ensurePayee(name); else ensurePerson(name);
+    if (normalizeRole(m.role) === "payee") await addNames({ payees: [name] }); else await addNames({ payers: [name] });
     await loadBuckets();
     flash(`Saved — ${name} added.`);
   };
@@ -438,7 +452,7 @@ export default function App() {
       </main>
 
       {activityOpen && currentBucket && (
-        <ActivityPanel bucketId={selectedId} bucketName={currentBucket.name} onClose={() => setActivityOpen(false)} />
+        <ActivityPanel bucketId={selectedId} bucketName={currentBucket.name} categories={categories} onClose={() => setActivityOpen(false)} />
       )}
 
       {manageOpen && currentBucket && (

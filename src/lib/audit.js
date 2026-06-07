@@ -12,8 +12,9 @@ export const auditDate = (d) => {
 };
 export const auditMethod = (id) => (PAYMENT_METHODS.find((m) => m.id === id) || { label: id || "—" }).label;
 
-export function describeEvent(e) {
+export function describeEvent(e, cats = []) {
   const n = e.new_data || {}, o = e.old_data || {};
+  const catName = (id) => { const c = cats.find((x) => x.id === id); return c ? `${c.emoji} ${c.name}` : (id || "—"); };
   if (e.table_name === "expenses") {
     const x = e.action === "delete" ? o : n;
     const label = `₹${Number(x.amount || 0).toLocaleString("en-IN")}${x.paid_to ? ` to ${x.paid_to}` : ""}${x.description ? ` — ${String(x.description).slice(0, 40)}` : ""}`;
@@ -28,7 +29,7 @@ export function describeEvent(e) {
         case "amount": return `amount ₹${Number(o.amount || 0).toLocaleString("en-IN")} → ₹${Number(n.amount || 0).toLocaleString("en-IN")}`;
         case "date": return `date ${auditDate(o.date)} → ${auditDate(n.date)}`;
         case "method": return `method ${auditMethod(o.method)} → ${auditMethod(n.method)}`;
-        case "category": return `category ${o.category || "—"} → ${n.category || "—"}`;
+        case "category": return `category ${catName(o.category)} → ${catName(n.category)}`;
         case "paid_by": return `payer ${o.paid_by || "—"} → ${n.paid_by || "—"}`;
         case "paid_to": return `payee ${o.paid_to || "—"} → ${n.paid_to || "—"}`;
         case "description": return `note "${String(o.description || "—").slice(0, 25)}" → "${String(n.description || "—").slice(0, 25)}"`;

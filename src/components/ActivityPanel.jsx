@@ -3,7 +3,7 @@ import { History, X, Loader2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { describeEvent } from "../lib/audit";
 
-export function ActivityPanel({ bucketId, bucketName, onClose }) {
+export function ActivityPanel({ bucketId, bucketName, categories = [], onClose }) {
   const [events, setEvents] = useState(null);
   const [limit, setLimit] = useState(30);
   useEffect(() => {
@@ -32,7 +32,7 @@ export function ActivityPanel({ bucketId, bucketName, onClose }) {
               <div key={e.id} className="flex items-start gap-2 text-sm py-1.5 border-b border-slate-50 last:border-0">
                 <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 text-[10px] flex items-center justify-center font-semibold shrink-0 mt-0.5">{(e.actor_name || e.actor_email || "?").slice(0, 1).toUpperCase()}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="text-slate-700"><strong className="font-medium">{e.actor_name || (e.actor_email ? e.actor_email.split("@")[0] : "system")}</strong> {describeEvent(e)}</span>
+                  <span className="text-slate-700"><strong className="font-medium">{e.actor_name || (e.actor_email ? e.actor_email.split("@")[0] : "system")}</strong> {describeEvent(e, categories)}</span>
                   <span className="block text-[11px] text-slate-400">{new Date(e.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
                 </span>
               </div>
