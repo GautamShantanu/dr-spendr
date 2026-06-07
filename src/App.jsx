@@ -389,7 +389,7 @@ function BucketSwitcher({ buckets, selectedId, onSelect, onNew, onManage, member
 
 /* ============================== manage bucket modal ============================== */
 
-function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, onAddPerson, canEdit, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete }) {
+function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, onAddPerson, onSetMemberName, canEdit, onClose, onRename, onInvite, onChangeRole, onRemoveMember, onLeave, onDelete }) {
   const [name, setName] = useState(bucket.name);
   const [emoji, setEmoji] = useState(bucket.emoji || "💼");
   const [invite, setInvite] = useState("");
@@ -472,6 +472,12 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
                         <Plus className="w-3 h-3" /> Add "{m.display_name}" to paid-by people
                       </button>
                     )}
+                    {isOwner && !m.display_name && m.role !== "owner" && (
+                      <button onClick={() => { const n = window.prompt(`Name for ${m.email}? It goes in the ${normalizeRole(m.role) === "payee" ? "payee" : "payer"} list.`); if (n && n.trim()) onSetMemberName(m, n.trim()); }}
+                        className="mt-1 text-[11px] text-slate-600 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md font-medium inline-flex items-center gap-1">
+                        <Pencil className="w-3 h-3" /> Set name
+                      </button>
+                    )}
                   </span>
                   {isOwner && m.role !== "owner" && (
                     <>
@@ -501,16 +507,16 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
                 <button onClick={doInvite} className="px-4 rounded-xl bg-emerald-600 text-white text-sm hover:bg-emerald-700">Invite</button>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
+                <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="flex-1 min-w-0 w-full px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
                   <option value="manager">Manager — can add & edit expenses</option>
                   <option value="viewer">Viewer — can see everything, edit nothing</option>
                   <option value="payee">Payee — sees only payments made to them</option>
                 </select>
                 {inviteRole === "payee" ? (
-                  <div className="flex-1"><PaidByInput value={invitePayee} onChange={setInvitePayee} people={payees} compact placeholder="Payee name (new or existing)" icon={Store} /></div>
+                  <div className="flex-1 min-w-0"><PaidByInput value={invitePayee} onChange={setInvitePayee} people={payees} compact placeholder="Payee name (new or existing)" icon={Store} /></div>
                 ) : (
                   <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Name (goes in payer list)"
-                    className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:bg-white focus:border-slate-400" />
+                    className="flex-1 min-w-0 w-full px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:bg-white focus:border-slate-400" />
                 )}
               </div>
               <p className="text-[11px] text-slate-400 mt-1.5">
@@ -1759,6 +1765,13 @@ export default function App() {
     await loadBuckets();
     return {};
   };
+  const setMemberName = async (m, name) => {
+    const { error } = await supabase.from("bucket_members").update({ display_name: name }).eq("id", m.id);
+    if (error) { flash("Couldn't set name."); console.error(error); return; }
+    if (normalizeRole(m.role) === "payee") ensurePayee(name); else ensurePerson(name);
+    await loadBuckets();
+    flash(`Saved — ${name} added.`);
+  };
   const changeMemberRole = async (m, role) => {
     const { error } = await supabase.from("bucket_members").update({ role, payee_name: role === "payee" ? m.payee_name : null }).eq("id", m.id);
     if (error) { flash("Couldn't change role."); return; }
@@ -1926,7 +1939,7 @@ export default function App() {
       {manageOpen && currentBucket && (
         <ManageBucketModal
           bucket={currentBucket} members={bucketMembers} isOwner={isOwner} myEmail={myEmail} payees={payees}
-          people={people} canEdit={canEdit} onAddPerson={(n) => { ensurePerson(n); flash(`Added ${n} to people.`); }}
+          people={people} canEdit={canEdit} onAddPerson={(n) => { ensurePerson(n); flash(`Added ${n} to payers.`); }} onSetMemberName={setMemberName}
           onClose={() => setManageOpen(false)} onRename={renameBucket} onInvite={inviteMember} onChangeRole={changeMemberRole}
           onRemoveMember={removeMember} onLeave={leaveBucket} onDelete={deleteBucket}
         />
