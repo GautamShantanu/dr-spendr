@@ -844,10 +844,26 @@ function BudgetCard({ mk, isCurrent, budgets, spent, canEdit, onSet }) {
               {left < 0 ? `Over by ${fmtINR(-left)}` : `${fmtINR(left)} left`}
             </span>
           </div>
-          <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
-          </div>
-          <p className="text-[11px] text-slate-400 mt-1">{Math.round((spent / budget) * 100)}% used{isCurrent ? "" : " · full month"}</p>
+          {left < 0 ? (
+            <>
+              {/* over budget: full bar = total spent; amber = the budget, red = the overrun */}
+              <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden flex">
+                <div className="h-full transition-all" style={{ width: `${(budget / spent) * 100}%`, background: "#f59e0b" }} />
+                <div className="h-full transition-all border-l-2 border-white" style={{ width: `${((spent - budget) / spent) * 100}%`, background: "#f43f5e" }} />
+              </div>
+              <div className="flex items-center justify-between mt-1 text-[11px]">
+                <span className="text-slate-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} /> budget {fmtINRshort(budget)}</span>
+                <span className="text-rose-500 font-medium flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#f43f5e" }} /> over {fmtINRshort(spent - budget)} · {Math.round((spent / budget) * 100)}% used</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">{Math.round((spent / budget) * 100)}% used{isCurrent ? "" : " · full month"}</p>
+            </>
+          )}
         </div>
       ) : (
         <p className="text-sm text-slate-400 mt-2">No budget set for this month. Set one to track spends against it — future months inherit it automatically.</p>
