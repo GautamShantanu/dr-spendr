@@ -224,6 +224,59 @@ drop policy if exists expenses_delete on public.expenses;
 create policy expenses_delete on public.expenses for delete
   using (public.my_role(bucket_id) in ('owner','manager'));
 
+-- ---------- Audit log ----------
+-- Every insert/update/delete on the four data tables is recorded by a
+-- trigger, with who did it and the before/after row. Owners, managers and
+-- viewers of a bucket can read its log; nobody can write to it directly.
+
+create table if not exists public.audit_log (
+  id          bigint generated always as identity primary key,
+  bucket_id   uuid,
+  table_name  text not null,
+  action      text not null,            -- 'insert' | 'update' | 'delete'
+  actor       uuid,
+  actor_email text,
+  old_data    jsonb,
+  new_data    jsonb,
+  created_at  timestamptz not null default now()
+);
+create index if not exists audit_bucket_idx on public.audit_log (bucket_id, id desc);
+
+create or replace function public.log_audit()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  n jsonb := case when tg_op = 'DELETE' then null else to_jsonb(new) end;
+  o jsonb := case when tg_op = 'INSERT' then null else to_jsonb(old) end;
+  b uuid  := coalesce(
+    (coalesce(n, o) ->> 'bucket_id')::uuid,
+    case when tg_table_name = 'buckets' then (coalesce(n, o) ->> 'id')::uuid end);
+begin
+  insert into public.audit_log (bucket_id, table_name, action, actor, actor_email, old_data, new_data)
+  values (b, tg_table_name, lower(tg_op), auth.uid(), auth.jwt() ->> 'email', o, n);
+  return coalesce(new, old);
+end $$;
+
+drop trigger if exists audit_expenses on public.expenses;
+create trigger audit_expenses after insert or update or delete on public.expenses
+  for each row execute function public.log_audit();
+drop trigger if exists audit_buckets on public.buckets;
+create trigger audit_buckets after insert or update or delete on public.buckets
+  for each row execute function public.log_audit();
+drop trigger if exists audit_members on public.bucket_members;
+create trigger audit_members after insert or update or delete on public.bucket_members
+  for each row execute function public.log_audit();
+drop trigger if exists audit_settings on public.bucket_settings;
+create trigger audit_settings after insert or update or delete on public.bucket_settings
+  for each row execute function public.log_audit();
+
+alter table public.audit_log enable row level security;
+drop policy if exists audit_select on public.audit_log;
+create policy audit_select on public.audit_log for select
+  using (public.my_role(bucket_id) in ('owner','manager','viewer'));
+-- no insert/update/delete policies: only the trigger (security definer) writes
+
 -- ---------- Receipt photo storage ----------
 -- Private bucket; files live at  <bucket_id>/<expense_id>/<file>.jpg
 -- Access mirrors the expense roles: owner/manager upload & delete, everyone in

@@ -6,7 +6,7 @@ import {
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
   Store, Divide, Eye, Paperclip, ImagePlus, FileText, Landmark,
-  ArrowLeftRight, Building2, Zap, CalendarClock,
+  ArrowLeftRight, Building2, Zap, CalendarClock, History,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -1201,9 +1201,85 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
   );
 }
 
+/* ============================== activity log ============================== */
+
+const AUDIT_FIELDS = { amount: "amount", category: "category", description: "note", date: "date", method: "method", paid_by: "paid by", paid_to: "paid to", split: "split", attachments: "photos" };
+
+function describeEvent(e) {
+  const n = e.new_data || {}, o = e.old_data || {};
+  if (e.table_name === "expenses") {
+    const x = e.action === "delete" ? o : n;
+    const label = `₹${Number(x.amount || 0).toLocaleString("en-IN")}${x.paid_to ? ` to ${x.paid_to}` : ""}${x.description ? ` — ${String(x.description).slice(0, 40)}` : ""}`;
+    if (e.action === "insert") return `added expense ${label}`;
+    if (e.action === "delete") return `deleted expense ${label}`;
+    const changed = Object.keys(AUDIT_FIELDS).filter((k) => JSON.stringify(o[k] ?? null) !== JSON.stringify(n[k] ?? null)).map((k) => AUDIT_FIELDS[k]);
+    return `edited expense ${label}${changed.length ? ` (${changed.join(", ")})` : ""}`;
+  }
+  if (e.table_name === "bucket_members") {
+    if (e.action === "insert") return `invited ${n.email} as ${(ROLE_LABELS[n.role] || n.role || "").toLowerCase()}`;
+    if (e.action === "delete") return `removed ${o.email}`;
+    if (!o.user_id && n.user_id) return `${n.display_name || n.email} joined (activated)`;
+    if (o.role !== n.role) return `changed ${n.email} to ${(ROLE_LABELS[n.role] || n.role || "").toLowerCase()}`;
+    return `updated member ${n.email}`;
+  }
+  if (e.table_name === "bucket_settings") {
+    const changed = ["categories", "people", "payees"].filter((k) => JSON.stringify(o[k] ?? null) !== JSON.stringify(n[k] ?? null));
+    return `updated ${changed.join(", ") || "settings"}`;
+  }
+  if (e.table_name === "buckets") {
+    if (e.action === "insert") return "created this bucket";
+    if (e.action === "delete") return "deleted bucket";
+    if (o.name !== n.name || o.emoji !== n.emoji) return `renamed bucket to ${n.emoji || ""} ${n.name || ""}`;
+    return "updated bucket";
+  }
+  return `${e.action} ${e.table_name}`;
+}
+
+function ActivityLog({ bucketId }) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState(null);
+  const [limit, setLimit] = useState(30);
+  useEffect(() => {
+    if (!open || !bucketId) return;
+    (async () => {
+      const { data, error } = await supabase.from("audit_log").select("id,table_name,action,actor_email,old_data,new_data,created_at").eq("bucket_id", bucketId).order("id", { ascending: false }).limit(limit);
+      if (error) { console.error(error); setEvents([]); return; }
+      setEvents(data || []);
+    })();
+  }, [bucketId, limit, open]);
+  return (
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2"><History className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Activity</h3><span className="text-xs text-slate-400">· who changed what</span></div>
+        <button onClick={() => setOpen((v) => !v)} className="text-sm text-slate-600 hover:text-slate-900 flex items-center gap-1">
+          {open ? "Hide" : "View"} <ChevronDown className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+      {open && (
+        <div className="mt-3 space-y-1.5">
+          {events === null ? <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
+            : events.length === 0 ? <p className="text-sm text-slate-400 py-4 text-center">No activity recorded yet. (Logging starts from when the audit log was installed.)</p>
+            : events.map((e) => (
+              <div key={e.id} className="flex items-start gap-2 text-sm py-1.5 border-b border-slate-50 last:border-0">
+                <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 text-[10px] flex items-center justify-center font-semibold shrink-0 mt-0.5">{(e.actor_email || "?").slice(0, 1).toUpperCase()}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="text-slate-700"><strong className="font-medium">{e.actor_email ? e.actor_email.split("@")[0] : "system"}</strong> {describeEvent(e)}</span>
+                  <span className="block text-[11px] text-slate-400">{new Date(e.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+                </span>
+              </div>
+            ))}
+          {events && events.length === limit && (
+            <button onClick={() => setLimit((l) => l + 50)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700">Show more</button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /* ============================== settings ============================== */
 
-function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, myName, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, onMergePeople, onMergePayees, isOwner, canEdit, onSignOut, userEmail }) {
+function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, bucketId, isPayee, myName, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, onMergePeople, onMergePayees, isOwner, canEdit, onSignOut, userEmail }) {
   const [newCat, setNewCat] = useState({ name: "", emoji: "🏷️", color: PALETTE[0] });
   const [editCatId, setEditCatId] = useState(null);
   const [newPerson, setNewPerson] = useState("");
@@ -1377,6 +1453,9 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ""; }} />
         </div>
       </Card>
+
+      {/* activity */}
+      {!isPayee && <ActivityLog bucketId={bucketId} />}
 
       {/* danger */}
       {isOwner && (
@@ -1772,7 +1851,7 @@ export default function App() {
               <SettingsView
                 categories={categories} setCategories={setCategories} people={people} setPeople={setPeople}
                 payees={payees} setPayees={setPayees}
-                expenses={expenses} bucketName={currentBucket?.name || "this bucket"} myName={myName}
+                expenses={expenses} bucketName={currentBucket?.name || "this bucket"} bucketId={selectedId} isPayee={isPayee} myName={myName}
                 displayName={myName} onChangeName={changeName} userEmail={user.email}
                 onExport={exportData} onImport={importData} onClearBucket={clearBucket} onMergePeople={mergePeople} onMergePayees={mergePayees} isOwner={isOwner} canEdit={canEdit} onSignOut={signOut}
               />
