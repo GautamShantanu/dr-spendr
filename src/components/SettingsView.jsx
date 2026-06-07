@@ -43,6 +43,7 @@ export function SettingsView({ categories, setCategories, people, setPeople, pay
   ];
   const [section, setSection] = useState("general");
   const [payeeQ, setPayeeQ] = useState("");
+  const [showAllMissingPayees, setShowAllMissingPayees] = useState(false);
   const payeesShown = payeeQ ? payees.filter((p) => p.toLowerCase().includes(payeeQ.toLowerCase())) : payees;
 
   // names present in expense history but no longer in the suggestion lists —
@@ -205,13 +206,17 @@ export function SettingsView({ categories, setCategories, people, setPeople, pay
               {canEdit && <button onClick={() => setPayees(Array.from(new Set([...payees, ...missingPayees])))} className="text-xs text-amber-700 font-medium hover:underline shrink-0">Restore all</button>}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {missingPayees.slice(0, 30).map((p) => (
+              {(showAllMissingPayees ? missingPayees : missingPayees.slice(0, 30)).map((p) => (
                 <button key={p} disabled={!canEdit} onClick={() => setPayees([...payees, p])} title={canEdit ? "Add back to the list" : undefined}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-amber-300 text-xs text-amber-800 hover:bg-amber-100 disabled:opacity-60">
                   <Plus className="w-3 h-3" />{p}
                 </button>
               ))}
-              {missingPayees.length > 30 && <span className="text-xs text-amber-600 self-center">+{missingPayees.length - 30} more · use Restore all</span>}
+              {missingPayees.length > 30 && (
+                <button onClick={() => setShowAllMissingPayees((v) => !v)} className="text-xs text-amber-700 font-medium self-center px-2 py-1 hover:underline">
+                  {showAllMissingPayees ? "Show fewer" : `+${missingPayees.length - 30} more`}
+                </button>
+              )}
             </div>
           </div>
         )}
