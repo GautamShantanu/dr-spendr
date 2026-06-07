@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef } from "react";
 import {
   Users, LogOut, Tag, Pencil, Trash2, Check, Plus, Store, Search, Loader2,
-  Download, Upload, AlertTriangle,
+  Download, Upload, AlertTriangle, X,
 } from "lucide-react";
 import { PALETTE, EMOJI_CHOICES } from "../lib/constants";
 import { Card } from "./ui/Card";
