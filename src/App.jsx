@@ -1366,7 +1366,11 @@ function describeEvent(e) {
     const label = `₹${Number(x.amount || 0).toLocaleString("en-IN")}${x.paid_to ? ` to ${x.paid_to}` : ""}${x.description ? ` — ${String(x.description).slice(0, 40)}` : ""}`;
     if (e.action === "insert") return `added expense ${label}`;
     if (e.action === "delete") return `deleted expense ${label}`;
-    const changed = Object.keys(AUDIT_FIELDS).filter((k) => JSON.stringify(o[k] ?? null) !== JSON.stringify(n[k] ?? null)).map((k) => AUDIT_FIELDS[k]);
+    const changedKeys = Object.keys(AUDIT_FIELDS).filter((k) => JSON.stringify(o[k] ?? null) !== JSON.stringify(n[k] ?? null));
+    // a lone payer/payee change (typical of a merge) reads as before → after
+    if (changedKeys.length === 1 && changedKeys[0] === "paid_to") return `moved ₹${Number(n.amount || 0).toLocaleString("en-IN")} from payee "${o.paid_to || "—"}" to "${n.paid_to || "—"}"`;
+    if (changedKeys.length === 1 && changedKeys[0] === "paid_by") return `moved ₹${Number(n.amount || 0).toLocaleString("en-IN")} from payer "${o.paid_by || "—"}" to "${n.paid_by || "—"}"`;
+    const changed = changedKeys.map((k) => AUDIT_FIELDS[k]);
     return `edited expense ${label}${changed.length ? ` (${changed.join(", ")})` : ""}`;
   }
   if (e.table_name === "bucket_members") {
