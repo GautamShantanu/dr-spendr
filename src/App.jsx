@@ -768,6 +768,7 @@ function Dashboard({ expenses, categories, myName }) {
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const [pieScope, setPieScope] = useState("month");
   const [payeeScopeAll, setPayeeScopeAll] = useState(true);
+  const [paidScopeAll, setPaidScopeAll] = useState(false);
   const now = new Date();
   const thisMK = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -799,7 +800,7 @@ function Dashboard({ expenses, categories, myName }) {
   }
 
   const paid = {};
-  thisM.forEach((e) => { const k = e.paidBy || "Me"; paid[k] = (paid[k] || 0) + e.amount; });
+  (paidScopeAll ? expenses : thisM).forEach((e) => { const k = e.paidBy || "Me"; paid[k] = (paid[k] || 0) + e.amount; });
   const paidList = Object.entries(paid).sort((a, b) => b[1] - a[1]);
   const paidGrand = paidList.reduce((s, [, v]) => s + v, 0);
   const myShare = (paid[myName] || 0) + (myName !== "Me" ? (paid["Me"] || 0) : 0);
@@ -891,8 +892,11 @@ function Dashboard({ expenses, categories, myName }) {
         </Card>
 
         <Card className="p-4 sm:p-5">
-          <div className="flex items-center gap-2 mb-3"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Who paid</h3><span className="text-xs text-slate-400">· this month</span></div>
-          {paidList.length === 0 ? <p className="text-sm text-slate-400 py-12 text-center">No spending this month.</p> : (
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Who paid</h3></div>
+            <div className="flex gap-1.5"><Pill active={!paidScopeAll} onClick={() => setPaidScopeAll(false)}>This month</Pill><Pill active={paidScopeAll} onClick={() => setPaidScopeAll(true)}>All time</Pill></div>
+          </div>
+          {paidList.length === 0 ? <p className="text-sm text-slate-400 py-12 text-center">No spending in this period.</p> : (
             <div className="space-y-3">
               {paidList.map(([person, amt], i) => {
                 const p = paidGrand > 0 ? (amt / paidGrand) * 100 : 0;
