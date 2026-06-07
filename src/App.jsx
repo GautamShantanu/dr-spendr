@@ -1458,6 +1458,15 @@ function NotificationsCard({ userId }) {
 
 const AUDIT_FIELDS = { amount: "amount", category: "category", description: "note", date: "date", method: "method", paid_by: "paid by", paid_to: "paid to", split: "split", attachments: "photos" };
 
+const auditDate = (d) => {
+  if (!d) return "—";
+  const dt = new Date(d + "T00:00:00");
+  const opts = { day: "numeric", month: "short" };
+  if (dt.getFullYear() !== new Date().getFullYear()) opts.year = "2-digit";
+  return dt.toLocaleDateString("en-IN", opts);
+};
+const auditMethod = (id) => (PAYMENT_METHODS.find((m) => m.id === id) || { label: id || "—" }).label;
+
 function describeEvent(e) {
   const n = e.new_data || {}, o = e.old_data || {};
   if (e.table_name === "expenses") {
@@ -1469,8 +1478,24 @@ function describeEvent(e) {
     // a lone payer/payee change (typical of a merge) reads as before → after
     if (changedKeys.length === 1 && changedKeys[0] === "paid_to") return `moved ₹${Number(n.amount || 0).toLocaleString("en-IN")} from payee "${o.paid_to || "—"}" to "${n.paid_to || "—"}"`;
     if (changedKeys.length === 1 && changedKeys[0] === "paid_by") return `moved ₹${Number(n.amount || 0).toLocaleString("en-IN")} from payer "${o.paid_by || "—"}" to "${n.paid_by || "—"}"`;
-    const changed = changedKeys.map((k) => AUDIT_FIELDS[k]);
-    return `edited expense ${label}${changed.length ? ` (${changed.join(", ")})` : ""}`;
+    const diffs = changedKeys.map((k) => {
+      switch (k) {
+        case "amount": return `amount ₹${Number(o.amount || 0).toLocaleString("en-IN")} → ₹${Number(n.amount || 0).toLocaleString("en-IN")}`;
+        case "date": return `date ${auditDate(o.date)} → ${auditDate(n.date)}`;
+        case "method": return `method ${auditMethod(o.method)} → ${auditMethod(n.method)}`;
+        case "category": return `category ${o.category || "—"} → ${n.category || "—"}`;
+        case "paid_by": return `payer ${o.paid_by || "—"} → ${n.paid_by || "—"}`;
+        case "paid_to": return `payee ${o.paid_to || "—"} → ${n.paid_to || "—"}`;
+        case "description": return `note "${String(o.description || "—").slice(0, 25)}" → "${String(n.description || "—").slice(0, 25)}"`;
+        case "split": return o.split && n.split ? "split changed" : n.split ? "split added" : "split removed";
+        case "attachments": {
+          const oc = Array.isArray(o.attachments) ? o.attachments.length : 0, nc = Array.isArray(n.attachments) ? n.attachments.length : 0;
+          return `photos ${oc} → ${nc}`;
+        }
+        default: return AUDIT_FIELDS[k];
+      }
+    });
+    return `edited expense ${label}${diffs.length ? ` (${diffs.join("; ")})` : ""}`;
   }
   if (e.table_name === "bucket_members") {
     if (e.action === "insert") return `invited ${n.email} as ${(ROLE_LABELS[n.role] || n.role || "").toLowerCase()}${n.display_name ? ` ("${n.display_name}")` : ""}`;
