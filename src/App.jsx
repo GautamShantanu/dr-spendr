@@ -6,7 +6,7 @@ import {
   MoreHorizontal, Sparkles, Wallet, TrendingUp, TrendingDown, LogOut,
   ChevronsUpDown, UserPlus, Mail, Share2, Crown, Download, Upload, Lock,
   Store, Divide, Eye, Paperclip, ImagePlus, FileText, Landmark,
-  ArrowLeftRight, Building2, Zap, CalendarClock, History,
+  ArrowLeftRight, Building2, Zap, CalendarClock, History, Bell,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -1503,30 +1503,31 @@ function describeEvent(e) {
   return `${e.action} ${e.table_name}`;
 }
 
-function ActivityLog({ bucketId }) {
-  const [open, setOpen] = useState(false);
+function ActivityPanel({ bucketId, bucketName, onClose }) {
   const [events, setEvents] = useState(null);
   const [limit, setLimit] = useState(30);
   useEffect(() => {
-    if (!open || !bucketId) return;
+    if (!bucketId) return;
     (async () => {
       const { data, error } = await supabase.from("audit_log").select("id,table_name,action,actor_email,actor_name,old_data,new_data,created_at").eq("bucket_id", bucketId).order("id", { ascending: false }).limit(limit);
       if (error) { console.error(error); setEvents([]); return; }
       setEvents(data || []);
     })();
-  }, [bucketId, limit, open]);
+  }, [bucketId, limit]);
   return (
-    <Card className="p-4 sm:p-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><History className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Activity</h3><span className="text-xs text-slate-400">· who changed what</span></div>
-        <button onClick={() => setOpen((v) => !v)} className="text-sm text-slate-600 hover:text-slate-900 flex items-center gap-1">
-          {open ? "Hide" : "View"} <ChevronDown className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`} />
-        </button>
-      </div>
-      {open && (
-        <div className="mt-3 space-y-1.5">
-          {events === null ? <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
-            : events.length === 0 ? <p className="text-sm text-slate-400 py-4 text-center">No activity recorded yet. (Logging starts from when the audit log was installed.)</p>
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <History className="w-4 h-4 text-slate-500 shrink-0" />
+            <h3 className="font-semibold text-slate-800">Activity</h3>
+            <span className="text-xs text-slate-400 truncate">· {bucketName}</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 pt-3 space-y-1.5">
+          {events === null ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
+            : events.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No activity recorded yet. (Logging starts from when the audit log was installed.)</p>
             : events.map((e) => (
               <div key={e.id} className="flex items-start gap-2 text-sm py-1.5 border-b border-slate-50 last:border-0">
                 <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 text-[10px] flex items-center justify-center font-semibold shrink-0 mt-0.5">{(e.actor_name || e.actor_email || "?").slice(0, 1).toUpperCase()}</span>
@@ -1540,8 +1541,8 @@ function ActivityLog({ bucketId }) {
             <button onClick={() => setLimit((l) => l + 50)} className="w-full py-2 text-sm text-slate-500 hover:text-slate-700">Show more</button>
           )}
         </div>
-      )}
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1761,9 +1762,6 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         </div>
       </Card>
 
-      {/* activity */}
-      {!isPayee && <ActivityLog bucketId={bucketId} />}
-
       {/* danger */}
       {isOwner && (
         <Card className="p-4 sm:p-5 border-rose-200 bg-rose-50/40">
@@ -1818,6 +1816,7 @@ export default function App() {
   const [budgets, setBudgets] = useState({});
   const [tab, setTab] = useState("dashboard");
   const [manageOpen, setManageOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [toast, setToast] = useState("");
   const settingsHydrated = useRef(false);
   const loadedSettings = useRef({}); // last-known DB values, to write only what changed
@@ -2175,6 +2174,13 @@ export default function App() {
             <img src="/logo.svg" alt="Dr Spendr" className="w-9 h-9 rounded-xl shrink-0" />
             {currentBucket && <BucketSwitcher buckets={buckets} selectedId={selectedId} onSelect={setSelectedId} onNew={createBucket} onManage={() => setManageOpen(true)} memberCounts={memberCounts} />}
           </div>
+          <div className="flex items-center gap-1.5">
+          {currentBucket && !isPayee && (
+            <button onClick={() => setActivityOpen(true)} title="Activity — who changed what"
+              className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300">
+              <Bell className="w-4 h-4" />
+            </button>
+          )}
           <nav className="hidden sm:flex items-center gap-1 bg-slate-100 rounded-xl p-1">
             {tabs.map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)} className={`px-3.5 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5 transition ${tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
@@ -2182,6 +2188,7 @@ export default function App() {
               </button>
             ))}
           </nav>
+          </div>
         </div>
       </header>
 
@@ -2210,6 +2217,10 @@ export default function App() {
           </>
         )}
       </main>
+
+      {activityOpen && currentBucket && (
+        <ActivityPanel bucketId={selectedId} bucketName={currentBucket.name} onClose={() => setActivityOpen(false)} />
+      )}
 
       {manageOpen && currentBucket && (
         <ManageBucketModal
