@@ -1183,7 +1183,7 @@ function TxnRow({ expense, cat, myName, canEdit, onEdit, onDelete, onViewPhotos,
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style={{ background: (cat?.color || "#94a3b8") + "1F" }}>{cat?.emoji || "📦"}</div>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-slate-800 truncate">{expense.description || cat?.name || "Expense"}</p>
+          <p className="font-medium text-slate-800 break-words line-clamp-2">{expense.description || cat?.name || "Expense"}</p>
           <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 flex-wrap">
             <button onClick={() => onFilter({ from: expense.date, to: expense.date })} className="hover:text-slate-700 hover:underline" title="Show this day only">{dateLabel}</button><span className="text-slate-300">·</span>
             <button onClick={() => onFilter({ method: expense.method })} className="flex items-center gap-1 hover:text-slate-700 hover:underline" title={`Filter: ${M.label}`}><M.icon className="w-3 h-3" />{M.label}</button><span className="text-slate-300">·</span>
@@ -1638,6 +1638,19 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
   const [payeeQ, setPayeeQ] = useState("");
   const payeesShown = payeeQ ? payees.filter((p) => p.toLowerCase().includes(payeeQ.toLowerCase())) : payees;
 
+  // names present in expense history but no longer in the suggestion lists —
+  // merge still works on them, and they can be restored with one tap
+  const missingPayees = useMemo(() => {
+    const inList = new Set(payees.map((p) => p.toLowerCase()));
+    return Array.from(new Set(expenses.map((e) => e.paidTo).filter(Boolean))).filter((p) => !inList.has(p.toLowerCase())).sort();
+  }, [payees, expenses]);
+  const missingPeople = useMemo(() => {
+    const inList = new Set(people.map((p) => p.toLowerCase()));
+    return Array.from(new Set(expenses.map((e) => e.paidBy).filter(Boolean))).filter((p) => !inList.has(p.toLowerCase())).sort();
+  }, [people, expenses]);
+  const allPayeeNames = useMemo(() => [...payees, ...missingPayees].sort((a, b) => a.localeCompare(b)), [payees, missingPayees]);
+  const allPeopleNames = useMemo(() => [...people, ...missingPeople].sort((a, b) => a.localeCompare(b)), [people, missingPeople]);
+
   return (
     <div className="space-y-4">
       {/* section switcher */}
@@ -1711,6 +1724,22 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
       {/* payers */}
       <Card className="p-4 sm:p-5">
         <div className="flex items-center gap-2 mb-4"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Payers</h3><span className="text-xs text-slate-400">· {people.length} · names for "paid by" & splits</span></div>
+        {missingPeople.length > 0 && (
+          <div className="mb-3 p-3 rounded-xl bg-amber-50/60 border border-amber-100">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-medium text-amber-700">In past expenses but removed from this list ({missingPeople.length})</p>
+              {canEdit && <button onClick={() => setPeople(Array.from(new Set([...people, ...missingPeople])))} className="text-xs text-amber-700 font-medium hover:underline shrink-0">Restore all</button>}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {missingPeople.map((p) => (
+                <button key={p} disabled={!canEdit} onClick={() => setPeople([...people, p])} title={canEdit ? "Add back to the list" : undefined}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-amber-300 text-xs text-amber-800 hover:bg-amber-100 disabled:opacity-60">
+                  <Plus className="w-3 h-3" />{p}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 mb-3">
           {people.map((p) => (
             <span key={p} className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-full bg-slate-100 text-sm text-slate-700">
@@ -1725,19 +1754,19 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         </div>}
 
         {/* merge duplicate people (e.g. a hand-typed name + an invited account) */}
-        {canEdit && people.length >= 2 && (
+        {canEdit && allPeopleNames.length >= 2 && (
           <div className="mt-4 pt-4 border-t border-slate-100">
             <p className="text-xs font-medium text-slate-500 mb-1.5">Merge two payers</p>
             <p className="text-[11px] text-slate-400 mb-2">If the same person appears twice — e.g. a name you typed and an invited account — merge them. All their "paid by" entries and split shares in this bucket move to the kept name.</p>
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               <select value={mergeFrom} onChange={(e) => setMergeFrom(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
                 <option value="">Merge this…</option>
-                {people.filter((p) => p !== mergeTo).map((p) => <option key={p} value={p}>{p}</option>)}
+                {allPeopleNames.filter((p) => p !== mergeTo).map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
               <span className="text-xs text-slate-400 text-center shrink-0">into</span>
               <select value={mergeTo} onChange={(e) => setMergeTo(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
                 <option value="">…this (kept)</option>
-                {people.filter((p) => p !== mergeFrom).map((p) => <option key={p} value={p}>{p}</option>)}
+                {allPeopleNames.filter((p) => p !== mergeFrom).map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
               <button disabled={!mergeFrom || !mergeTo || merging}
                 onClick={async () => { setMerging(true); await onMergePeople(mergeFrom, mergeTo); setMerging(false); setMergeFrom(""); setMergeTo(""); }}
@@ -1762,6 +1791,23 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           </div>
         )}
         {payeeQ && payeesShown.length === 0 && <p className="text-sm text-slate-400 mb-3">No payee matches "{payeeQ}".</p>}
+        {missingPayees.length > 0 && (
+          <div className="mb-3 p-3 rounded-xl bg-amber-50/60 border border-amber-100">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-medium text-amber-700">In past expenses but removed from this list ({missingPayees.length})</p>
+              {canEdit && <button onClick={() => setPayees(Array.from(new Set([...payees, ...missingPayees])))} className="text-xs text-amber-700 font-medium hover:underline shrink-0">Restore all</button>}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {missingPayees.slice(0, 30).map((p) => (
+                <button key={p} disabled={!canEdit} onClick={() => setPayees([...payees, p])} title={canEdit ? "Add back to the list" : undefined}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-amber-300 text-xs text-amber-800 hover:bg-amber-100 disabled:opacity-60">
+                  <Plus className="w-3 h-3" />{p}
+                </button>
+              ))}
+              {missingPayees.length > 30 && <span className="text-xs text-amber-600 self-center">+{missingPayees.length - 30} more · use Restore all</span>}
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 mb-3">
           {payeesShown.map((p) => (
             <span key={p} className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-full bg-sky-50 text-sm text-sky-800">
@@ -1776,19 +1822,19 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         </div>}
 
         {/* merge duplicate payees (e.g. "Tiles wala" + the actual vendor) */}
-        {canEdit && payees.length >= 2 && (
+        {canEdit && allPayeeNames.length >= 2 && (
           <div className="mt-4 pt-4 border-t border-slate-100">
             <p className="text-xs font-medium text-slate-500 mb-1.5">Merge two payees</p>
             <p className="text-[11px] text-slate-400 mb-2">If the same vendor appears under two names, merge them. All "paid to" entries in this bucket move to the kept name.</p>
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               <select value={pMergeFrom} onChange={(e) => setPMergeFrom(e.target.value)} className="flex-1 min-w-0 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
                 <option value="">Merge this…</option>
-                {payees.filter((p) => p !== pMergeTo).map((p) => <option key={p} value={p}>{p}</option>)}
+                {allPayeeNames.filter((p) => p !== pMergeTo).map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
               <span className="text-xs text-slate-400 text-center shrink-0">into</span>
               <select value={pMergeTo} onChange={(e) => setPMergeTo(e.target.value)} className="flex-1 min-w-0 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
                 <option value="">…this (kept)</option>
-                {payees.filter((p) => p !== pMergeFrom).map((p) => <option key={p} value={p}>{p}</option>)}
+                {allPayeeNames.filter((p) => p !== pMergeFrom).map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
               <button disabled={!pMergeFrom || !pMergeTo || pMerging}
                 onClick={async () => { setPMerging(true); await onMergePayees(pMergeFrom, pMergeTo); setPMerging(false); setPMergeFrom(""); setPMergeTo(""); }}
