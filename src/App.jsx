@@ -215,6 +215,10 @@ function ComboFilter({ value, onChange, options, placeholder = "All" }) {
         className="w-full px-2.5 pr-7 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400 text-slate-800"
       />
       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+      {value !== "all" && !open && (
+        <button onMouseDown={(e) => { e.preventDefault(); onChange("all"); }} aria-label="Clear filter"
+          className="absolute right-7 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-rose-500"><X className="w-3.5 h-3.5" /></button>
+      )}
       {open && (
         <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-52 overflow-y-auto">
           <button onMouseDown={() => { onChange("all"); setOpen(false); }} className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-500 ${value === "all" ? "bg-slate-50 font-medium" : ""}`}>All</button>
@@ -1285,6 +1289,7 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
   const payeesInData = useMemo(() => Array.from(new Set([...payees, ...expenses.map((e) => e.paidTo).filter(Boolean)])), [payees, expenses]);
   const activeFilters = Object.entries(filters).filter(([, v]) => v && v !== "all").length;
   const toggleSort = (k) => { if (sortBy === k) setSortDir((d) => (d === "asc" ? "desc" : "asc")); else { setSortBy(k); setSortDir("desc"); } };
+  const resetFilters = () => { setFilters({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" }); setSearch(""); };
 
   return (
     <div className="space-y-3">
@@ -1292,7 +1297,8 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
         <div className="flex flex-col sm:flex-row gap-2.5">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search notes, categories, people…" className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search notes, categories, people…" className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm" />
+            {search && <button onClick={() => setSearch("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-rose-500"><X className="w-4 h-4" /></button>}
           </div>
           <div className="flex gap-2">
             <button onClick={() => toggleSort("date")} className={`px-3 py-2.5 rounded-xl border text-sm font-medium flex items-center gap-1.5 ${sortBy === "date" ? "border-slate-400 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-600"}`}>Date {sortBy === "date" && <ArrowUpDown className="w-3.5 h-3.5" />}</button>
@@ -1300,17 +1306,23 @@ function Transactions({ expenses, categories, people, payees, myName, canEdit, o
             <button onClick={() => setShowFilters((v) => !v)} className={`px-3 py-2.5 rounded-xl border text-sm font-medium flex items-center gap-1.5 relative ${showFilters || activeFilters ? "border-slate-400 bg-white text-slate-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
               <Filter className="w-4 h-4" /> Filters{activeFilters > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center">{activeFilters}</span>}
             </button>
+            {activeFilters > 0 && (
+              <button onClick={resetFilters} title="Reset all filters"
+                className="px-3 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 text-sm font-medium flex items-center gap-1.5 hover:bg-rose-100">
+                <X className="w-4 h-4" /> Reset
+              </button>
+            )}
           </div>
         </div>
         {showFilters && (
           <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 lg:grid-cols-5 gap-2.5">
-            <div><label className="text-[11px] text-slate-400 font-medium block mb-1">From</label><input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400" /></div>
-            <div><label className="text-[11px] text-slate-400 font-medium block mb-1">To</label><input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400" /></div>
+            <div><label className="text-[11px] text-slate-400 font-medium block mb-1">From</label><div className="relative"><input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} className="w-full px-2.5 py-2 pr-7 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400" />{filters.from && <button onClick={() => setFilters({ ...filters, from: "" })} aria-label="Clear from date" className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-rose-500 bg-slate-50"><X className="w-3.5 h-3.5" /></button>}</div></div>
+            <div><label className="text-[11px] text-slate-400 font-medium block mb-1">To</label><div className="relative"><input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} className="w-full px-2.5 py-2 pr-7 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400" />{filters.to && <button onClick={() => setFilters({ ...filters, to: "" })} aria-label="Clear to date" className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-rose-500 bg-slate-50"><X className="w-3.5 h-3.5" /></button>}</div></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Category</label><select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}</select></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Payment</label><select value={filters.method} onChange={(e) => setFilters({ ...filters, method: e.target.value })} className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-slate-400"><option value="all">All</option>{PAYMENT_METHODS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></div>
             <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid by</label><ComboFilter value={filters.person} onChange={(v) => setFilters({ ...filters, person: v })} options={peopleInData} placeholder="All — type to search" /></div>
             {payeesInData.length > 0 && <div><label className="text-[11px] text-slate-400 font-medium block mb-1">Paid to</label><ComboFilter value={filters.payee} onChange={(v) => setFilters({ ...filters, payee: v })} options={payeesInData} placeholder="All — type to search" /></div>}
-            {activeFilters > 0 && <button onClick={() => setFilters({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" })} className="col-span-2 lg:col-span-5 text-xs text-slate-500 hover:text-rose-500 text-left">Clear all filters</button>}
+            {activeFilters > 0 && <button onClick={resetFilters} className="col-span-2 lg:col-span-5 text-xs text-slate-500 hover:text-rose-500 text-left">Clear all filters</button>}
           </div>
         )}
       </Card>
