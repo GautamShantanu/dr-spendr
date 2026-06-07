@@ -1306,8 +1306,29 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
   const addPayee = () => { const n = newPayee.trim(); if (!n || payees.some((p) => p.toLowerCase() === n.toLowerCase())) { setNewPayee(""); return; } setPayees([...payees, n]); setNewPayee(""); };
   const deletePayee = (p) => setPayees(payees.filter((x) => x !== p));
 
+  const SECTIONS = [
+    { id: "general", label: "General" },
+    { id: "categories", label: "Categories" },
+    { id: "names", label: "Payers & Payees" },
+    { id: "data", label: "Data" },
+  ];
+  const [section, setSection] = useState("general");
+  const [payeeQ, setPayeeQ] = useState("");
+  const payeesShown = payeeQ ? payees.filter((p) => p.toLowerCase().includes(payeeQ.toLowerCase())) : payees;
+
   return (
     <div className="space-y-4">
+      {/* section switcher */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+        {SECTIONS.map((s) => (
+          <button key={s.id} onClick={() => setSection(s.id)}
+            className={`flex-1 py-2 px-1 rounded-lg text-xs sm:text-sm font-medium transition ${section === s.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {section === "general" && <>
       {/* account */}
       <Card className="p-4 sm:p-5">
         <div className="flex items-center gap-2 mb-4"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Account</h3></div>
@@ -1320,9 +1341,12 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         <button onClick={onSignOut} className="mt-4 text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1.5"><LogOut className="w-4 h-4" /> Sign out</button>
       </Card>
 
+      </>}
+
+      {section === "categories" && <>
       {/* categories */}
       <Card className="p-4 sm:p-5">
-        <div className="flex items-center gap-2 mb-4"><Tag className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Categories</h3><span className="text-xs text-slate-400">· for {bucketName}</span></div>
+        <div className="flex items-center gap-2 mb-4"><Tag className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Categories</h3><span className="text-xs text-slate-400">· {categories.length} · for {bucketName}</span></div>
         <div className="space-y-2 mb-4">
           {categories.map((c) => editCatId === c.id ? (
             <div key={c.id} className="p-3 rounded-xl border border-slate-300 bg-slate-50 space-y-2.5">
@@ -1358,9 +1382,12 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         </div>}
       </Card>
 
-      {/* people */}
+      </>}
+
+      {section === "names" && <>
+      {/* payers */}
       <Card className="p-4 sm:p-5">
-        <div className="flex items-center gap-2 mb-4"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">People</h3><span className="text-xs text-slate-400">· names for "paid by" & splits</span></div>
+        <div className="flex items-center gap-2 mb-4"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Payers</h3><span className="text-xs text-slate-400">· {people.length} · names for "paid by" & splits</span></div>
         <div className="flex flex-wrap gap-2 mb-3">
           {people.map((p) => (
             <span key={p} className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-full bg-slate-100 text-sm text-slate-700">
@@ -1370,14 +1397,14 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           ))}
         </div>
         {canEdit && <div className="flex gap-2">
-          <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} placeholder="Add a person (partner, roommate…)" className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400" />
+          <input value={newPerson} onChange={(e) => setNewPerson(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPerson()} placeholder="Add a payer (partner, family…)" className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:bg-white focus:border-slate-400" />
           <button onClick={addPerson} className="px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Add</button>
         </div>}
 
         {/* merge duplicate people (e.g. a hand-typed name + an invited account) */}
         {canEdit && people.length >= 2 && (
           <div className="mt-4 pt-4 border-t border-slate-100">
-            <p className="text-xs font-medium text-slate-500 mb-1.5">Merge two people</p>
+            <p className="text-xs font-medium text-slate-500 mb-1.5">Merge two payers</p>
             <p className="text-[11px] text-slate-400 mb-2">If the same person appears twice — e.g. a name you typed and an invited account — merge them. All their "paid by" entries and split shares in this bucket move to the kept name.</p>
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
               <select value={mergeFrom} onChange={(e) => setMergeFrom(e.target.value)} className="flex-1 px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 outline-none focus:border-slate-400">
@@ -1402,10 +1429,18 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
 
       {/* payees */}
       <Card className="p-4 sm:p-5">
-        <div className="flex items-center gap-2 mb-4"><Store className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Payees</h3><span className="text-xs text-slate-400">· vendors & contractors for "paid to"</span></div>
+        <div className="flex items-center gap-2 mb-4"><Store className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Payees</h3><span className="text-xs text-slate-400">· {payees.length} · vendors & contractors for "paid to"</span></div>
         {payees.length === 0 && <p className="text-sm text-slate-400 mb-3">No payees yet. Add the people/vendors you pay — e.g. your contractor — and pick them on an expense. New names typed on an expense are added here automatically.</p>}
+        {payees.length > 12 && (
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input value={payeeQ} onChange={(e) => setPayeeQ(e.target.value)} placeholder={`Search ${payees.length} payees…`}
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-slate-800 text-sm" />
+          </div>
+        )}
+        {payeeQ && payeesShown.length === 0 && <p className="text-sm text-slate-400 mb-3">No payee matches "{payeeQ}".</p>}
         <div className="flex flex-wrap gap-2 mb-3">
-          {payees.map((p) => (
+          {payeesShown.map((p) => (
             <span key={p} className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1.5 rounded-full bg-sky-50 text-sm text-sky-800">
               <span className="w-5 h-5 rounded-full bg-sky-600 text-white text-[10px] flex items-center justify-center font-semibold">{p.slice(0, 1).toUpperCase()}</span>
               {p}{canEdit && <button onClick={() => deletePayee(p)} className="text-sky-400 hover:text-rose-500"><X className="w-3.5 h-3.5" /></button>}
@@ -1443,6 +1478,9 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
         )}
       </Card>
 
+      </>}
+
+      {section === "data" && <>
       {/* backup */}
       <Card className="p-4 sm:p-5">
         <div className="flex items-center gap-2 mb-2"><Download className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Backup</h3></div>
@@ -1461,7 +1499,7 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
       {isOwner && (
         <Card className="p-4 sm:p-5 border-rose-200 bg-rose-50/40">
           <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-4 h-4 text-rose-500" /><h3 className="font-semibold text-rose-700">Clear this bucket</h3></div>
-          <p className="text-sm text-slate-500 mb-3">Delete every expense in <strong>{bucketName}</strong>. Categories and people stay. This cannot be undone.</p>
+          <p className="text-sm text-slate-500 mb-3">Delete every expense in <strong>{bucketName}</strong>. Categories, payers and payees stay. This cannot be undone.</p>
           {confirmClear ? (
             <div className="flex items-center gap-2">
               <button onClick={() => { onClearBucket(); setConfirmClear(false); }} className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Delete all {expenses.length} expenses</button>
@@ -1472,6 +1510,7 @@ function SettingsView({ categories, setCategories, people, setPeople, payees, se
           )}
         </Card>
       )}
+      </>}
     </div>
   );
 }
