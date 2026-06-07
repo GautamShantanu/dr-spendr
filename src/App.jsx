@@ -398,6 +398,8 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
   const [inviteName, setInviteName] = useState("");
   const [msg, setMsg] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [nameFor, setNameFor] = useState(null);   // member id whose name is being set
+  const [nameDraft, setNameDraft] = useState("");
 
   const doInvite = async () => {
     const e = invite.trim().toLowerCase();
@@ -472,11 +474,23 @@ function ManageBucketModal({ bucket, members, isOwner, myEmail, payees, people, 
                         <Plus className="w-3 h-3" /> Add "{m.display_name}" to paid-by people
                       </button>
                     )}
-                    {isOwner && !m.display_name && m.role !== "owner" && (
-                      <button onClick={() => { const n = window.prompt(`Name for ${m.email}? It goes in the ${normalizeRole(m.role) === "payee" ? "payee" : "payer"} list.`); if (n && n.trim()) onSetMemberName(m, n.trim()); }}
+                    {isOwner && !m.display_name && m.role !== "owner" && nameFor !== m.id && (
+                      <button onClick={() => { setNameFor(m.id); setNameDraft(""); }}
                         className="mt-1 text-[11px] text-slate-600 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md font-medium inline-flex items-center gap-1">
-                        <Pencil className="w-3 h-3" /> Set name
+                        <Pencil className="w-3 h-3" /> Set {normalizeRole(m.role) === "payee" ? "payee" : "payer"} name
                       </button>
+                    )}
+                    {nameFor === m.id && (
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <div className="flex-1 min-w-0">
+                          <PaidByInput value={nameDraft} onChange={setNameDraft} people={normalizeRole(m.role) === "payee" ? payees : people} compact
+                            placeholder={normalizeRole(m.role) === "payee" ? "Pick or type payee name" : "Pick or type payer name"}
+                            icon={normalizeRole(m.role) === "payee" ? Store : Users} />
+                        </div>
+                        <button disabled={!nameDraft.trim()} onClick={() => { onSetMemberName(m, nameDraft.trim()); setNameFor(null); }}
+                          className="p-2 rounded-lg bg-slate-900 text-white disabled:opacity-40"><Check className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setNameFor(null)} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"><X className="w-3.5 h-3.5" /></button>
+                      </div>
                     )}
                   </span>
                   {isOwner && m.role !== "owner" && (
