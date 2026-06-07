@@ -1505,12 +1505,20 @@ function describeEvent(e) {
     nameDiff("payees", "payee");
     if (JSON.stringify(o.categories ?? null) !== JSON.stringify(n.categories ?? null)) {
       const oc = Array.isArray(o.categories) ? o.categories : [], nc = Array.isArray(n.categories) ? n.categories : [];
-      const ocIds = new Set(oc.map((c) => c.id)), ncIds = new Set(nc.map((c) => c.id));
-      const addedC = nc.filter((c) => !ocIds.has(c.id)).map((c) => c.name);
-      const removedC = oc.filter((c) => !ncIds.has(c.id)).map((c) => c.name);
+      const oById = Object.fromEntries(oc.map((c) => [c.id, c]));
+      const ncIds = new Set(nc.map((c) => c.id));
+      const addedC = nc.filter((c) => !oById[c.id]).map((c) => `${c.emoji} ${c.name}`);
+      const removedC = oc.filter((c) => !ncIds.has(c.id)).map((c) => `${c.emoji} ${c.name}`);
       if (addedC.length) parts.push(`added categor${addedC.length > 1 ? "ies" : "y"} ${few(addedC)}`);
       if (removedC.length) parts.push(`removed categor${removedC.length > 1 ? "ies" : "y"} ${few(removedC)}`);
-      if (!addedC.length && !removedC.length) parts.push("edited categories");
+      for (const c of nc) {
+        const prev = oById[c.id];
+        if (!prev) continue;
+        if (prev.name !== c.name) parts.push(`renamed category "${prev.name}" to "${c.name}"`);
+        if (prev.emoji !== c.emoji) parts.push(`changed ${c.name}'s emoji ${prev.emoji} → ${c.emoji}`);
+        if (prev.color !== c.color && prev.name === c.name && prev.emoji === c.emoji) parts.push(`recolored category ${c.name}`);
+      }
+      if (!parts.length) parts.push("edited categories");
     }
     return parts.join("; ") || "updated settings";
   }
@@ -1979,7 +1987,7 @@ export default function App() {
           if (error) { console.error(error); return; }
           loadedSettings.current = { ...loadedSettings.current, ...patch };
         });
-    }, 400);
+    }, 1500);
     return () => clearTimeout(t);
   }, [categories, people, payees, budgets, selectedId, buckets]);
 
