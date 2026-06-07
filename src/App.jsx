@@ -784,22 +784,106 @@ function Stat({ label, value, exact, sub, accent, icon: Icon, trend }) {
   );
 }
 
-function Dashboard({ expenses, categories, myName }) {
+/* budget for month mk: exact entry, else the latest earlier month's value (inheritance) */
+const resolveBudget = (budgets, mk) => {
+  if (!budgets) return { amount: null, from: null };
+  const keys = Object.keys(budgets).filter((k) => k <= mk).sort();
+  if (!keys.length) return { amount: null, from: null };
+  const from = keys[keys.length - 1];
+  const v = Number(budgets[from]);
+  return { amount: v > 0 ? v : null, from };
+};
+
+function BudgetCard({ mk, isCurrent, budgets, spent, canEdit, onSet }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const { amount: budget, from } = resolveBudget(budgets, mk);
+  const inherited = budget !== null && from !== mk;
+  if (!budget && !canEdit) return null;
+  const pct = budget ? Math.min(100, (spent / budget) * 100) : 0;
+  const left = budget ? budget - spent : 0;
+  const color = !budget ? "#cbd5e1" : left < 0 ? "#f43f5e" : pct > 80 ? "#f59e0b" : "#10b981";
+  return (
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <Wallet className="w-4 h-4 text-slate-500 shrink-0" />
+          <h3 className="font-semibold text-slate-800">Budget</h3>
+          <span className="text-xs text-slate-400">· {monthLabel(mk)}{inherited ? ` · inherited from ${monthLabel(from)}` : ""}</span>
+        </div>
+        {canEdit && !editing && (
+          <button onClick={() => { setDraft(budget ? String(budget) : ""); setEditing(true); }} className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1">
+            <Pencil className="w-3 h-3" /> {budget ? "Edit" : "Set monthly budget"}
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="relative flex-1 max-w-[200px]">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">₹</span>
+            <input autoFocus inputMode="decimal" value={draft} onChange={(e) => setDraft(e.target.value.replace(/[^0-9.]/g, ""))} onKeyDown={(e) => e.key === "Enter" && (onSet(mk, parseFloat(draft) || null), setEditing(false))}
+              placeholder="e.g. 50000" className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-slate-400 outline-none text-sm font-semibold" />
+          </div>
+          <button onClick={() => { onSet(mk, parseFloat(draft) || null); setEditing(false); }} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-sm">Save</button>
+          {budget && from === mk && <button onClick={() => { onSet(mk, null); setEditing(false); }} className="px-3 py-2 rounded-xl text-rose-600 text-sm hover:bg-rose-50">Remove</button>}
+          <button onClick={() => setEditing(false)} className="px-2 py-2 rounded-xl text-slate-500 text-sm hover:bg-slate-100">Cancel</button>
+        </div>
+      ) : budget ? (
+        <div className="mt-3">
+          <div className="flex items-baseline justify-between text-sm mb-1.5 flex-wrap gap-1">
+            <span className="text-slate-600">Spent <strong className="text-slate-900">{fmtINR(spent)}</strong> of {fmtINR(budget)}</span>
+            <span className={`font-semibold ${left < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+              {left < 0 ? `Over by ${fmtINR(-left)}` : `${fmtINR(left)} left`}
+            </span>
+          </div>
+          <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">{Math.round((spent / budget) * 100)}% used{isCurrent ? "" : " · full month"}</p>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400 mt-2">No budget set for this month. Set one to track spends against it — future months inherit it automatically.</p>
+      )}
+    </Card>
+  );
+}
+
+function Dashboard({ expenses, categories, myName, budgets, onSetBudget, canEdit }) {
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const [pieScope, setPieScope] = useState("month");
   const [payeeScopeAll, setPayeeScopeAll] = useState(true);
   const [paidScopeAll, setPaidScopeAll] = useState(false);
   const now = new Date();
-  const thisMK = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const currentMK = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [selMK, setSelMK] = useState(currentMK);
+
+  /* selectable months: first transaction month → current month */
+  const monthOptions = useMemo(() => {
+    const first = expenses.length ? expenses.reduce((m, e) => (monthKey(e.date) < m ? monthKey(e.date) : m), currentMK) : currentMK;
+    const out = [];
+    let [y, m] = first.split("-").map(Number);
+    while (true) {
+      const mk = `${y}-${String(m).padStart(2, "0")}`;
+      out.push(mk);
+      if (mk >= currentMK) break;
+      m += 1; if (m > 12) { m = 1; y += 1; }
+    }
+    return out.reverse(); // newest first
+  }, [expenses, currentMK]);
+
+  const isCurrent = selMK === currentMK;
+  const thisMK = selMK;
+  const [sy, sm] = selMK.split("-").map(Number);
+  const last = new Date(sy, sm - 2, 1);
   const lastMK = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}`;
   const thisM = expenses.filter((e) => monthKey(e.date) === thisMK);
   const lastM = expenses.filter((e) => monthKey(e.date) === lastMK);
   const thisTotal = thisM.reduce((s, e) => s + e.amount, 0);
   const lastTotal = lastM.reduce((s, e) => s + e.amount, 0);
   const pct = lastTotal > 0 ? ((thisTotal - lastTotal) / lastTotal) * 100 : null;
-  const days = now.getDate();
+  const days = isCurrent ? now.getDate() : new Date(sy, sm, 0).getDate();
   const dailyAvg = days > 0 ? thisTotal / days : 0;
+  const monthPill = isCurrent ? "This month" : monthLabel(selMK);
 
   const catThis = {};
   thisM.forEach((e) => { catThis[e.category] = (catThis[e.category] || 0) + e.amount; });
@@ -814,7 +898,7 @@ function Dashboard({ expenses, categories, myName }) {
 
   const trend = [];
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const d = new Date(sy, sm - 1 - i, 1);
     const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     trend.push({ month: monthLabel(mk), total: expenses.filter((e) => monthKey(e.date) === mk).reduce((s, e) => s + e.amount, 0), current: mk === thisMK });
   }
@@ -836,7 +920,7 @@ function Dashboard({ expenses, categories, myName }) {
   const payeeTrend = [];
   if (hasPayees) {
     for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const d = new Date(sy, sm - 1 - i, 1);
       const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       payeeTrend.push({ month: monthLabel(mk), total: expenses.filter((e) => e.paidTo && monthKey(e.date) === mk).reduce((s, e) => s + e.amount, 0), current: mk === thisMK });
     }
@@ -868,9 +952,26 @@ function Dashboard({ expenses, categories, myName }) {
 
   return (
     <div className="space-y-4">
+      {/* global month selector — drives every "this month" view below */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="relative">
+          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          <select value={selMK} onChange={(e) => setSelMK(e.target.value)}
+            className="appearance-none pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-800 outline-none focus:border-slate-400">
+            {monthOptions.map((mk) => <option key={mk} value={mk}>{mk === currentMK ? `This month · ${monthLabel(mk)}` : monthLabel(mk)}</option>)}
+          </select>
+          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+        </div>
+        {!isCurrent && (
+          <button onClick={() => setSelMK(currentMK)} className="text-xs text-slate-500 hover:text-slate-800 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200">Back to now</button>
+        )}
+      </div>
+
+      <BudgetCard mk={selMK} isCurrent={isCurrent} budgets={budgets} spent={thisTotal} canEdit={canEdit} onSet={onSetBudget} />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Spent this month" value={fmtINRshort(thisTotal)} exact={fmtINRshort(thisTotal) !== fmtINR(thisTotal) ? fmtINR(thisTotal) : null} accent="#5B8DEF" icon={Wallet} sub={pct === null ? "No data last month" : `${Math.abs(pct).toFixed(0)}% vs last month`} trend={pct === null ? null : pct > 0 ? "up" : "down"} />
-        <Stat label="Last month" value={fmtINRshort(lastTotal)} exact={fmtINRshort(lastTotal) !== fmtINR(lastTotal) ? fmtINR(lastTotal) : null} accent="#9B7EDE" icon={Calendar} sub={monthLabel(lastMK)} />
+        <Stat label={isCurrent ? "Spent this month" : `Spent in ${monthLabel(selMK)}`} value={fmtINRshort(thisTotal)} exact={fmtINRshort(thisTotal) !== fmtINR(thisTotal) ? fmtINR(thisTotal) : null} accent="#5B8DEF" icon={Wallet} sub={pct === null ? "No data prior month" : `${Math.abs(pct).toFixed(0)}% vs ${monthLabel(lastMK)}`} trend={pct === null ? null : pct > 0 ? "up" : "down"} />
+        <Stat label={isCurrent ? "Last month" : "Month before"} value={fmtINRshort(lastTotal)} exact={fmtINRshort(lastTotal) !== fmtINR(lastTotal) ? fmtINR(lastTotal) : null} accent="#9B7EDE" icon={Calendar} sub={monthLabel(lastMK)} />
         <Stat label="Daily average" value={fmtINRshort(dailyAvg)} exact={fmtINRshort(dailyAvg) !== fmtINR(dailyAvg) ? fmtINR(dailyAvg) : null} accent="#4FB286" icon={TrendingUp} sub={`over ${days} day${days > 1 ? "s" : ""}`} />
         <Stat label="Biggest category" accent={biggest ? catMap[biggest.c]?.color : "#94a3b8"} icon={Tag} value={biggest ? `${catMap[biggest.c]?.emoji || ""} ${catMap[biggest.c]?.name || "—"}` : "—"} sub={biggest ? fmtINR(biggest.v) : ""} />
       </div>
@@ -879,7 +980,7 @@ function Dashboard({ expenses, categories, myName }) {
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold text-slate-800">By category</h3>
-            <div className="flex gap-1.5"><Pill active={pieScope === "month"} onClick={() => setPieScope("month")}>This month</Pill><Pill active={pieScope === "all"} onClick={() => setPieScope("all")}>All time</Pill></div>
+            <div className="flex gap-1.5"><Pill active={pieScope === "month"} onClick={() => setPieScope("month")}>{monthPill}</Pill><Pill active={pieScope === "all"} onClick={() => setPieScope("all")}>All time</Pill></div>
           </div>
           {pieData.length === 0 ? <p className="text-sm text-slate-400 py-12 text-center">No spending in this period.</p> : (
             <div className="flex flex-col sm:flex-row items-center gap-4">
@@ -914,7 +1015,7 @@ function Dashboard({ expenses, categories, myName }) {
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Users className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Who paid</h3></div>
-            <div className="flex gap-1.5"><Pill active={!paidScopeAll} onClick={() => setPaidScopeAll(false)}>This month</Pill><Pill active={paidScopeAll} onClick={() => setPaidScopeAll(true)}>All time</Pill></div>
+            <div className="flex gap-1.5"><Pill active={!paidScopeAll} onClick={() => setPaidScopeAll(false)}>{monthPill}</Pill><Pill active={paidScopeAll} onClick={() => setPaidScopeAll(true)}>All time</Pill></div>
           </div>
           {paidList.length === 0 ? <p className="text-sm text-slate-400 py-12 text-center">No spending in this period.</p> : (
             <div className="space-y-3">
@@ -950,7 +1051,7 @@ function Dashboard({ expenses, categories, myName }) {
             <Card className="p-4 sm:p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2"><Store className="w-4 h-4 text-slate-500" /><h3 className="font-semibold text-slate-800">Paid to</h3></div>
-                <div className="flex gap-1.5"><Pill active={!payeeScopeAll} onClick={() => setPayeeScopeAll(false)}>This month</Pill><Pill active={payeeScopeAll} onClick={() => setPayeeScopeAll(true)}>All time</Pill></div>
+                <div className="flex gap-1.5"><Pill active={!payeeScopeAll} onClick={() => setPayeeScopeAll(false)}>{monthPill}</Pill><Pill active={payeeScopeAll} onClick={() => setPayeeScopeAll(true)}>All time</Pill></div>
               </div>
               {payeeData.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No payee payments in this period.</p> : (
                 <>
@@ -1024,7 +1125,7 @@ function Dashboard({ expenses, categories, myName }) {
       )}
 
       <Card className="p-4 sm:p-5">
-        <h3 className="font-semibold text-slate-800 mb-3">Last 6 months</h3>
+        <h3 className="font-semibold text-slate-800 mb-3">{isCurrent ? "Last 6 months" : `6 months to ${monthLabel(selMK)}`}</h3>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={trend} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
@@ -1587,6 +1688,7 @@ export default function App() {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [people, setPeople] = useState([]);
   const [payees, setPayees] = useState([]);
+  const [budgets, setBudgets] = useState({});
   const [tab, setTab] = useState("dashboard");
   const [manageOpen, setManageOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -1663,6 +1765,7 @@ export default function App() {
       setCategories(Array.isArray(st.categories) && st.categories.length ? st.categories : DEFAULT_CATEGORIES);
       setPeople(Array.isArray(st.people) ? st.people : [myName]);
       setPayees(Array.isArray(st.payees) ? st.payees : []);
+      setBudgets(st.budgets && typeof st.budgets === "object" ? st.budgets : {});
     } catch (e) {
       flash("Couldn't load this bucket.");
       console.error(e);
@@ -1698,10 +1801,10 @@ export default function App() {
     const role = buckets.find((b) => b.id === selectedId)?.role;
     if (role !== "owner" && role !== "manager") return; // viewers/payees can't write settings
     const t = setTimeout(() => {
-      supabase.from("bucket_settings").upsert({ bucket_id: selectedId, categories, people, payees, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) console.error(error); });
+      supabase.from("bucket_settings").upsert({ bucket_id: selectedId, categories, people, payees, budgets, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) console.error(error); });
     }, 400);
     return () => clearTimeout(t);
-  }, [categories, people, payees, selectedId, buckets]);
+  }, [categories, people, payees, budgets, selectedId, buckets]);
 
   /* ---- expense CRUD ---- */
   const ensurePerson = (name) => { const n = (name || "").trim(); if (n && !people.some((p) => p.toLowerCase() === n.toLowerCase())) setPeople((prev) => [...prev, n]); };
@@ -1758,7 +1861,7 @@ export default function App() {
       const { data: created, error } = await supabase.from("buckets").insert({ name: name.trim(), emoji: "💼", owner_id: user.id }).select().single();
       if (error) throw error;
       await supabase.from("bucket_members").insert({ bucket_id: created.id, email: myEmail, user_id: user.id, role: "owner" });
-      await supabase.from("bucket_settings").insert({ bucket_id: created.id, categories: DEFAULT_CATEGORIES, people: [myName], payees: [] });
+      await supabase.from("bucket_settings").insert({ bucket_id: created.id, categories: DEFAULT_CATEGORIES, people: [myName], payees: [], budgets: {} });
       await loadBuckets();
       setSelectedId(created.id);
       flash("Bucket created.");
@@ -1778,6 +1881,14 @@ export default function App() {
     else ensurePerson(displayName || email.split("@")[0]);
     await loadBuckets();
     return {};
+  };
+  const setMonthBudget = (mk, amount) => {
+    setBudgets((prev) => {
+      const next = { ...prev };
+      if (amount === null || !(amount > 0)) delete next[mk]; else next[mk] = amount;
+      return next;
+    });
+    flash(amount > 0 ? `Budget for ${monthLabel(mk)} set to ${fmtINR(amount)}.` : `Budget for ${monthLabel(mk)} removed.`);
   };
   const setMemberName = async (m, name) => {
     const { error } = await supabase.from("bucket_members").update({ display_name: name }).eq("id", m.id);
@@ -1860,7 +1971,7 @@ export default function App() {
 
   const exportData = () => {
     const bucket = buckets.find((b) => b.id === selectedId);
-    const blob = new Blob([JSON.stringify({ bucket: bucket?.name, exportedAt: new Date().toISOString(), categories, people, payees, expenses }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ bucket: bucket?.name, exportedAt: new Date().toISOString(), categories, people, payees, budgets, expenses }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `spendr-${(bucket?.name || "bucket").toLowerCase().replace(/\s+/g, "-")}.json`; a.click();
@@ -1878,6 +1989,7 @@ export default function App() {
       if (Array.isArray(parsed.categories) && parsed.categories.length) setCategories(parsed.categories);
       if (Array.isArray(parsed.people)) setPeople((prev) => Array.from(new Set([...prev, ...parsed.people])));
       if (Array.isArray(parsed.payees)) setPayees((prev) => Array.from(new Set([...prev, ...parsed.payees])));
+      if (parsed.budgets && typeof parsed.budgets === "object") setBudgets((prev) => ({ ...parsed.budgets, ...prev }));
       await loadBucketData(selectedId);
       flash(`Imported ${rows.length} expenses.`);
     } catch (e) { flash("Import failed — is it a Dr Spendr export file?"); console.error(e); }
@@ -1935,7 +2047,7 @@ export default function App() {
               </Card>
             )}
             {tab !== "settings" && canEdit && <QuickAdd categories={categories} people={people} payees={payees} defaultPaidBy={myName} onAdd={addExpense} />}
-            {tab === "dashboard" && !isPayee && <Dashboard expenses={expenses} categories={categories} myName={myName} />}
+            {tab === "dashboard" && !isPayee && <Dashboard expenses={expenses} categories={categories} myName={myName} budgets={budgets} onSetBudget={setMonthBudget} canEdit={canEdit} />}
             {tab === "transactions" && <Transactions expenses={expenses} categories={categories} people={people} payees={payees} myName={myName} canEdit={canEdit} onUpdate={updateExpense} onDelete={deleteExpense} />}
             {tab === "settings" && (
               <SettingsView

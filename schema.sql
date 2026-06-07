@@ -37,6 +37,7 @@ create table if not exists public.bucket_settings (
   categories jsonb not null default '[]'::jsonb,
   people     jsonb not null default '[]'::jsonb,
   payees     jsonb not null default '[]'::jsonb,
+  budgets    jsonb not null default '{}'::jsonb,  -- {"2026-06": 50000, ...}; later months inherit the latest earlier value
   updated_at timestamptz not null default now()
 );
 
@@ -62,6 +63,7 @@ alter table public.expenses        add column if not exists paid_to text not nul
 alter table public.expenses        add column if not exists split jsonb;
 alter table public.expenses        add column if not exists attachments jsonb not null default '[]'::jsonb;
 alter table public.bucket_settings add column if not exists payees jsonb not null default '[]'::jsonb;
+alter table public.bucket_settings add column if not exists budgets jsonb not null default '{}'::jsonb;
 alter table public.bucket_members  add column if not exists payee_name text;
 alter table public.bucket_members  add column if not exists display_name text;
 update public.bucket_members set role = 'manager' where role = 'member';
