@@ -119,21 +119,50 @@ as $$
 $$;
 
 -- Called by the app on every load: links any invites matching the signed-in
--- email to the account (user_id) and records the display name. This is what
--- turns an invite from "Invited" to "Active" in the member list.
+-- email to the account (user_id), records the display name (turns "Invited"
+-- into "Active"), and auto-adds the new member to the bucket's payer list
+-- (except payee-role members, who don't record payments).
 create or replace function public.claim_memberships()
 returns void
-language sql security definer set search_path = public
+language plpgsql security definer set search_path = public
 as $$
-  update public.bucket_members m
-  set user_id = auth.uid(),
-      display_name = coalesce(
-        (select u.raw_user_meta_data ->> 'display_name' from auth.users u where u.id = auth.uid()),
-        (select u.raw_user_meta_data ->> 'full_name'   from auth.users u where u.id = auth.uid()),
-        split_part(m.email, '@', 1))
-  where lower(m.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
-    and (m.user_id is distinct from auth.uid() or m.display_name is null)
-$$;
+declare
+  dname text;
+  r record;
+begin
+  select coalesce(u.raw_user_meta_data ->> 'display_name', u.raw_user_meta_data ->> 'full_name')
+  into dname from auth.users u where u.id = auth.uid();
+
+  for r in
+    update public.bucket_members m
+    set user_id = auth.uid(),
+        display_name = coalesce(dname, split_part(m.email, '@', 1))
+    where lower(m.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      and (m.user_id is distinct from auth.uid() or m.display_name is null)
+    returning m.bucket_id, m.role, coalesce(dname, split_part(m.email, '@', 1)) as nm
+  loop
+    if r.role <> 'payee' then
+      update public.bucket_settings s
+      set people = s.people || to_jsonb(r.nm), updated_at = now()
+      where s.bucket_id = r.bucket_id
+        and not exists (select 1 from jsonb_array_elements_text(s.people) p where lower(p) = lower(r.nm));
+    end if;
+  end loop;
+end $$;
+
+-- One-time backfill: members who already activated before the auto-add above
+-- existed get their names added to the payer lists now (no duplicates).
+update public.bucket_settings s
+set people = s.people || sub.missing, updated_at = now()
+from (
+  select m.bucket_id, jsonb_agg(distinct m.display_name) as missing
+  from public.bucket_members m
+  join public.bucket_settings st on st.bucket_id = m.bucket_id
+  where m.display_name is not null and m.role <> 'payee'
+    and not exists (select 1 from jsonb_array_elements_text(st.people) p where lower(p) = lower(m.display_name))
+  group by m.bucket_id
+) sub
+where sub.bucket_id = s.bucket_id;
 
 -- ---------- Row Level Security ----------
 
@@ -236,11 +265,13 @@ create table if not exists public.audit_log (
   action      text not null,            -- 'insert' | 'update' | 'delete'
   actor       uuid,
   actor_email text,
+  actor_name  text,
   old_data    jsonb,
   new_data    jsonb,
   created_at  timestamptz not null default now()
 );
 create index if not exists audit_bucket_idx on public.audit_log (bucket_id, id desc);
+alter table public.audit_log add column if not exists actor_name text;
 
 create or replace function public.log_audit()
 returns trigger
@@ -253,10 +284,19 @@ declare
     (coalesce(n, o) ->> 'bucket_id')::uuid,
     case when tg_table_name = 'buckets' then (coalesce(n, o) ->> 'id')::uuid end);
 begin
-  insert into public.audit_log (bucket_id, table_name, action, actor, actor_email, old_data, new_data)
-  values (b, tg_table_name, lower(tg_op), auth.uid(), auth.jwt() ->> 'email', o, n);
+  insert into public.audit_log (bucket_id, table_name, action, actor, actor_email, actor_name, old_data, new_data)
+  values (b, tg_table_name, lower(tg_op), auth.uid(), auth.jwt() ->> 'email',
+          coalesce(auth.jwt() -> 'user_metadata' ->> 'display_name', auth.jwt() -> 'user_metadata' ->> 'full_name'),
+          o, n);
   return coalesce(new, old);
 end $$;
+
+-- Backfill names on older log entries from known member display names.
+update public.audit_log a
+set actor_name = (
+  select min(m.display_name) from public.bucket_members m
+  where lower(m.email) = lower(a.actor_email) and m.display_name is not null)
+where a.actor_name is null and a.actor_email is not null;
 
 drop trigger if exists audit_expenses on public.expenses;
 create trigger audit_expenses after insert or update or delete on public.expenses
