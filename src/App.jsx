@@ -6,6 +6,7 @@ import { supabase, isConfigured } from "./supabaseClient";
 import { DEFAULT_CATEGORIES, MAX_PHOTOS } from "./lib/constants";
 import { todayStr, monthLabel, fmtINR } from "./lib/format";
 import { rowToExpense, normalizeRole } from "./lib/helpers";
+import { usePullToRefresh } from "./hooks/usePullToRefresh";
 import { Card } from "./components/ui/Card";
 import { AuthScreen } from "./components/AuthScreen";
 import { ConfigScreen } from "./components/ConfigScreen";
@@ -16,6 +17,7 @@ import { Dashboard } from "./components/Dashboard";
 import { Transactions } from "./components/Transactions";
 import { SettingsView } from "./components/SettingsView";
 import { ActivityPanel } from "./components/ActivityPanel";
+import { PromptModal } from "./components/PromptModal";
 
 /* ============================== root ============================== */
 
@@ -36,6 +38,7 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [manageOpen, setManageOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [newBucketOpen, setNewBucketOpen] = useState(false);
   const [toast, setToast] = useState("");
   const settingsHydrated = useRef(false);
   const loadedSettings = useRef({}); // last-known DB values, to write only what changed
@@ -96,9 +99,9 @@ export default function App() {
   useEffect(() => { if (user) loadBuckets(); }, [user, loadBuckets]);
 
   /* ---- load selected bucket data ---- */
-  const loadBucketData = useCallback(async (bucketId) => {
+  const loadBucketData = useCallback(async (bucketId, { silent = false } = {}) => {
     if (!bucketId) return;
-    setDataLoading(true);
+    if (!silent) setDataLoading(true);   // silent = background sync (realtime/focus/pull): no full-page spinner, keeps view + scroll
     settingsHydrated.current = false;
     try {
       const { data: exp } = await supabase.from("expenses").select("*").eq("bucket_id", bucketId).order("date", { ascending: false }).order("created_at", { ascending: false });
@@ -123,7 +126,7 @@ export default function App() {
       flash("Couldn't load this bucket.");
       console.error(e);
     } finally {
-      setDataLoading(false);
+      if (!silent) setDataLoading(false);
       setTimeout(() => { settingsHydrated.current = true; }, 0);
     }
   }, [myName]);
@@ -135,10 +138,11 @@ export default function App() {
     if (selectedId && user) localStorage.setItem("drspendr:lastBucket:" + user.id, selectedId);
   }, [selectedId, user]);
 
-  /* ---- realtime + refetch on focus (keeps shared buckets in sync) ---- */
+  /* ---- realtime + refetch on focus (silent background sync — never blanks
+     the page or resets scroll/filters; the only visible refresh is pull-to-refresh) ---- */
   useEffect(() => {
     if (!selectedId) return;
-    const refetch = () => loadBucketData(selectedId);
+    const refetch = () => loadBucketData(selectedId, { silent: true });
     const onFocus = () => { if (document.visibilityState === "visible") refetch(); };
     document.addEventListener("visibilitychange", onFocus);
     const ch = supabase
@@ -235,8 +239,7 @@ export default function App() {
   };
 
   /* ---- bucket actions ---- */
-  const createBucket = async () => {
-    const name = window.prompt("Name this bucket (e.g. Joint, Personal, Trip)");
+  const createBucket = async (name) => {
     if (!name) return;
     try {
       const { data: created, error } = await supabase.from("buckets").insert({ name: name.trim(), emoji: "💼", owner_id: user.id }).select().single();
@@ -396,6 +399,10 @@ export default function App() {
   ];
   useEffect(() => { if (isPayee && tab === "dashboard") setTab("transactions"); }, [isPayee, tab]);
 
+  const { pull, refreshing } = usePullToRefresh(useCallback(async () => {
+    if (selectedId) await loadBucketData(selectedId, { silent: true });
+  }, [selectedId, loadBucketData]));
+
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-7 h-7 animate-spin text-slate-400" /></div>;
   if (!session) return <AuthScreen />;
 
@@ -405,7 +412,7 @@ export default function App() {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <img src="/logo.svg" alt="Dr Spendr" className="w-9 h-9 rounded-xl shrink-0" />
-            {currentBucket && <BucketSwitcher buckets={buckets} selectedId={selectedId} onSelect={setSelectedId} onNew={createBucket} onManage={() => setManageOpen(true)} memberCounts={memberCounts} />}
+            {currentBucket && <BucketSwitcher buckets={buckets} selectedId={selectedId} onSelect={setSelectedId} onNew={() => setNewBucketOpen(true)} onManage={() => setManageOpen(true)} memberCounts={memberCounts} />}
           </div>
           <div className="flex items-center gap-1.5">
           {currentBucket && !isPayee && (
@@ -425,6 +432,12 @@ export default function App() {
         </div>
       </header>
 
+      {(pull > 0 || refreshing) && (
+        <div className="flex items-end justify-center overflow-hidden" style={{ height: refreshing ? 44 : pull }}>
+          <Loader2 className={`w-5 h-5 text-slate-400 mb-2.5 ${refreshing || pull >= 64 ? "animate-spin" : ""}`} style={refreshing ? undefined : { transform: `rotate(${pull * 3}deg)` }} />
+        </div>
+      )}
+
       <main className="max-w-3xl mx-auto px-4 py-4 pb-28 sm:pb-8 space-y-4">
         {dataLoading ? (
           <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3"><Loader2 className="w-7 h-7 animate-spin" /><p className="text-sm">Loading {currentBucket?.name}…</p></div>
@@ -436,8 +449,10 @@ export default function App() {
               </Card>
             )}
             {tab !== "settings" && canEdit && <QuickAdd categories={categories} people={people} payees={payees} defaultPaidBy={myName} onAdd={addExpense} />}
-            {tab === "dashboard" && !isPayee && <Dashboard expenses={expenses} categories={categories} myName={myName} budgets={budgets} onSetBudget={setMonthBudget} canEdit={canEdit} />}
-            {tab === "transactions" && <Transactions expenses={expenses} categories={categories} people={people} payees={payees} myName={myName} canEdit={canEdit} onUpdate={updateExpense} onDelete={deleteExpense} />}
+            {/* Dashboard & Transactions stay mounted and are toggled with `hidden`,
+                so switching tabs preserves the month selector, filters, pagination and scroll. */}
+            {!isPayee && <div className={tab === "dashboard" ? "" : "hidden"}><Dashboard expenses={expenses} categories={categories} myName={myName} budgets={budgets} onSetBudget={setMonthBudget} canEdit={canEdit} bucketId={selectedId} /></div>}
+            <div className={tab === "transactions" ? "" : "hidden"}><Transactions expenses={expenses} categories={categories} people={people} payees={payees} myName={myName} canEdit={canEdit} bucketId={selectedId} onUpdate={updateExpense} onDelete={deleteExpense} /></div>
             {tab === "settings" && (
               <SettingsView
                 categories={categories} setCategories={setCategories} people={people} setPeople={setPeople}
@@ -450,6 +465,11 @@ export default function App() {
           </>
         )}
       </main>
+
+      {newBucketOpen && (
+        <PromptModal title="New bucket" label="Name" placeholder="e.g. Joint, Trip, Home" confirmLabel="Create"
+          onSubmit={createBucket} onClose={() => setNewBucketOpen(false)} />
+      )}
 
       {activityOpen && currentBucket && (
         <ActivityPanel bucketId={selectedId} bucketName={currentBucket.name} categories={categories} onClose={() => setActivityOpen(false)} />

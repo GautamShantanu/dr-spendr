@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   Tooltip, CartesianGrid,
@@ -104,7 +104,7 @@ function BudgetCard({ mk, isCurrent, budgets, spent, canEdit, onSet }) {
   );
 }
 
-export function Dashboard({ expenses, categories, myName, budgets, onSetBudget, canEdit }) {
+export function Dashboard({ expenses, categories, myName, budgets, onSetBudget, canEdit, bucketId }) {
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const [pieScope, setPieScope] = useState("month");
   const [payeeScopeAll, setPayeeScopeAll] = useState(true);
@@ -112,6 +112,7 @@ export function Dashboard({ expenses, categories, myName, budgets, onSetBudget, 
   const now = new Date();
   const currentMK = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const [selMK, setSelMK] = useState(currentMK);
+  useEffect(() => { setSelMK(currentMK); }, [bucketId]); // reset month view when switching buckets
 
   /* selectable months: first transaction month → current month */
   const monthOptions = useMemo(() => {

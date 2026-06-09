@@ -109,7 +109,7 @@ function EditRow({ expense, categories, people, payees, onSave, onCancel }) {
   );
 }
 
-export function Transactions({ expenses, categories, people, payees, myName, canEdit, onUpdate, onDelete }) {
+export function Transactions({ expenses, categories, people, payees, myName, canEdit, bucketId, onUpdate, onDelete }) {
   const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("date");
@@ -121,6 +121,12 @@ export function Transactions({ expenses, categories, people, payees, myName, can
   const PAGE_SIZE = 50;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filters, search, sortBy, sortDir]);
+  // switching buckets is a fresh context — clear filters/search/edit (but
+  // editing or a background refetch within a bucket keeps everything)
+  useEffect(() => {
+    setFilters({ from: "", to: "", category: "all", method: "all", person: "all", payee: "all" });
+    setSearch(""); setEditId(null); setShowFilters(false);
+  }, [bucketId]);
 
   const filtered = useMemo(() => {
     let list = expenses.filter((e) => {
