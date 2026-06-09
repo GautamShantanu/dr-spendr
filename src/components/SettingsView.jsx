@@ -8,7 +8,7 @@ import { Card } from "./ui/Card";
 import { EmojiInput } from "./ui/EmojiInput";
 import { NotificationsCard } from "./NotificationsCard";
 
-export function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, bucketId, isPayee, myName, userId, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, onMergePeople, onMergePayees, isOwner, canEdit, onSignOut, userEmail }) {
+export function SettingsView({ categories, setCategories, people, setPeople, payees, setPayees, expenses, bucketName, bucketId, isPayee, myName, userId, onRename: _ignored, displayName, onChangeName, onExport, onImport, onClearBucket, onMergePeople, onMergePayees, onDeleteCategory, isOwner, canEdit, onSignOut, userEmail }) {
   const [newCat, setNewCat] = useState({ name: "", emoji: "🏷️", color: PALETTE[0] });
   const [editCatId, setEditCatId] = useState(null);
   const [newPerson, setNewPerson] = useState("");
@@ -29,7 +29,12 @@ export function SettingsView({ categories, setCategories, people, setPeople, pay
     setNewCat({ name: "", emoji: "🏷️", color: PALETTE[categories.length % PALETTE.length] });
   };
   const updateCat = (id, patch) => setCategories(categories.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-  const deleteCat = (id) => { if (categories.length <= 1) return; setCategories(categories.filter((c) => c.id !== id)); };
+  const catUsage = (id) => expenses.filter((e) => e.category === id).length;
+  const deleteCat = (id) => {
+    if (categories.length <= 1) return;
+    if (catUsage(id) > 0) { const others = categories.filter((c) => c.id !== id); setReassignTo(others.find((c) => c.id === "other")?.id || others[0].id); setPendingDelete(id); }
+    else setCategories(categories.filter((c) => c.id !== id)); // unused → drop locally (persists via settings save)
+  };
   const addPerson = () => { const n = newPerson.trim(); if (!n || people.some((p) => p.toLowerCase() === n.toLowerCase())) { setNewPerson(""); return; } setPeople([...people, n]); setNewPerson(""); };
   const deletePerson = (p) => setPeople(people.filter((x) => x !== p));
   const addPayee = () => { const n = newPayee.trim(); if (!n || payees.some((p) => p.toLowerCase() === n.toLowerCase())) { setNewPayee(""); return; } setPayees([...payees, n]); setNewPayee(""); };
@@ -44,6 +49,8 @@ export function SettingsView({ categories, setCategories, people, setPeople, pay
   const [section, setSection] = useState("general");
   const [payeeQ, setPayeeQ] = useState("");
   const [showAllMissingPayees, setShowAllMissingPayees] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null); // category id awaiting reassign-confirm
+  const [reassignTo, setReassignTo] = useState("");
   const payeesShown = payeeQ ? payees.filter((p) => p.toLowerCase().includes(payeeQ.toLowerCase())) : payees;
 
   // names present in expense history but no longer in the suggestion lists —
@@ -103,10 +110,22 @@ export function SettingsView({ categories, setCategories, people, setPeople, pay
               <p className="text-[11px] text-slate-400">Type any emoji in the box (📱 emoji keyboard works), or pick one below.</p>
               <div className="flex flex-wrap gap-1">{EMOJI_CHOICES.map((em) => <button key={em} onClick={() => updateCat(c.id, { emoji: em })} className={`w-8 h-8 rounded-lg text-base hover:bg-slate-200 ${c.emoji === em ? "bg-slate-200 ring-1 ring-slate-400" : ""}`}>{em}</button>)}</div>
             </div>
+          ) : pendingDelete === c.id ? (
+            <div key={c.id} className="p-3 rounded-xl border border-rose-200 bg-rose-50/50 space-y-2">
+              <p className="text-sm text-slate-700"><strong>{catUsage(c.id)}</strong> expense{catUsage(c.id) > 1 ? "s" : ""} use <strong>{c.emoji} {c.name}</strong>. Move {catUsage(c.id) > 1 ? "them" : "it"} to:</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)} className="flex-1 min-w-0 px-2.5 py-2 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:border-slate-400">
+                  {categories.filter((x) => x.id !== c.id).map((x) => <option key={x.id} value={x.id}>{x.emoji} {x.name}</option>)}
+                </select>
+                <button onClick={() => { onDeleteCategory(c.id, reassignTo); setPendingDelete(null); }} className="px-3 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 flex items-center gap-1.5"><Trash2 className="w-4 h-4" /> Move & delete</button>
+                <button onClick={() => setPendingDelete(null)} className="px-3 py-2 rounded-lg text-slate-600 text-sm hover:bg-slate-100">Cancel</button>
+              </div>
+            </div>
           ) : (
             <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:border-slate-200">
               <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg" style={{ background: c.color + "1F" }}>{c.emoji}</div>
               <span className="flex-1 font-medium text-slate-700 text-sm">{c.name}</span>
+              <span className="text-[11px] text-slate-400">{catUsage(c.id) || ""}</span>
               <span className="w-4 h-4 rounded-full" style={{ background: c.color }} />
               {canEdit && <button onClick={() => setEditCatId(c.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>}
               {canEdit && <button onClick={() => deleteCat(c.id)} disabled={categories.length <= 1} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 disabled:opacity-30"><Trash2 className="w-4 h-4" /></button>}

@@ -9,8 +9,10 @@ import { PaidByInput } from "./ui/PaidByInput";
 import { SplitEditor } from "./SplitEditor";
 import { PhotoPicker } from "./PhotoPicker";
 
-export function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
-  const blank = { amount: "", category: categories[0]?.id || "other", description: "", date: todayStr(), method: "upi", paidBy: defaultPaidBy, paidTo: "" };
+export function QuickAdd({ categories, people, payees, defaultPaidBy, bucketId, onAdd }) {
+  const methodKey = "drspendr:lastMethod:" + (bucketId || "");
+  const lastMethod = (typeof localStorage !== "undefined" && localStorage.getItem(methodKey)) || "upi";
+  const blank = { amount: "", category: categories[0]?.id || "other", description: "", date: todayStr(), method: lastMethod, paidBy: defaultPaidBy, paidTo: "" };
   const [f, setF] = useState(blank);
   const [expanded, setExpanded] = useState(false);
   const [splitOn, setSplitOn] = useState(false);
@@ -21,6 +23,8 @@ export function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
   const amountRef = useRef(null);
 
   useEffect(() => { setF((p) => ({ ...p, category: categories[0]?.id || "other" })); /* eslint-disable-next-line */ }, [categories]);
+  // switching buckets: reset to that bucket's last-used method and today's date
+  useEffect(() => { setF((p) => ({ ...p, method: lastMethod, date: todayStr() })); /* eslint-disable-next-line */ }, [bucketId]);
 
   const submit = async () => {
     const amt = parseFloat(f.amount);
@@ -35,9 +39,12 @@ export function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
     const ok = await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy, paidTo: f.paidTo.trim(), split }, photos.map((p) => p.blob));
     setBusy(false);
     if (ok === false) { setErr("Couldn't save — your entry is kept. Check your connection and tap Add again."); return; }
+    try { localStorage.setItem(methodKey, f.method); } catch { /* ignore */ }
     photos.forEach((p) => URL.revokeObjectURL(p.url));
     setPhotos([]); setSplitOn(false); setShares({});
-    setF({ ...blank, category: f.category, paidBy: f.paidBy });
+    // carry category, payer, method AND date forward — batch back-entry of a
+    // day's site payments shouldn't reset method to UPI / date to today each time
+    setF({ ...blank, category: f.category, paidBy: f.paidBy, method: f.method, date: f.date });
     amountRef.current?.focus();
   };
 

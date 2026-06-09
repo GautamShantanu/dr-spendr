@@ -9,6 +9,7 @@ import { rowToExpense, normalizeRole } from "./lib/helpers";
 import { usePullToRefresh } from "./hooks/usePullToRefresh";
 import { Card } from "./components/ui/Card";
 import { AuthScreen } from "./components/AuthScreen";
+import { SetPasswordScreen } from "./components/SetPasswordScreen";
 import { ConfigScreen } from "./components/ConfigScreen";
 import { BucketSwitcher } from "./components/BucketSwitcher";
 import { ManageBucketModal } from "./components/ManageBucketModal";
@@ -40,6 +41,7 @@ export default function App() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [newBucketOpen, setNewBucketOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const [recovery, setRecovery] = useState(false);
   const settingsHydrated = useRef(false);
   const loadedSettings = useRef({}); // last-known DB values, to write only what changed
 
@@ -52,7 +54,10 @@ export default function App() {
   /* ---- auth ---- */
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthLoading(false); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -309,6 +314,17 @@ export default function App() {
     await loadBuckets();
     flash("Bucket deleted.");
   };
+  const deleteCategory = async (id, reassignTo) => {
+    // move any expenses on this category to the chosen one, then drop the category
+    const affected = expenses.filter((e) => e.category === id);
+    if (affected.length && reassignTo) {
+      const { error } = await supabase.from("expenses").update({ category: reassignTo }).eq("bucket_id", selectedId).eq("category", id);
+      if (error) { flash("Couldn't reassign expenses."); console.error(error); return; }
+      setExpenses((prev) => prev.map((e) => (e.category === id ? { ...e, category: reassignTo } : e)));
+    }
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    flash(affected.length ? `Category deleted; ${affected.length} expense${affected.length > 1 ? "s" : ""} moved.` : "Category deleted.");
+  };
   const clearBucket = async () => {
     const allPaths = expenses.flatMap((e) => e.attachments || []);
     const { error } = await supabase.from("expenses").delete().eq("bucket_id", selectedId);
@@ -405,6 +421,7 @@ export default function App() {
   }, [selectedId, loadBucketData]));
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-7 h-7 animate-spin text-slate-400" /></div>;
+  if (recovery) return <SetPasswordScreen onDone={() => { setRecovery(false); flash("Password updated."); }} />;
   if (!session) return <AuthScreen />;
 
   return (
@@ -449,7 +466,7 @@ export default function App() {
                 <p className="text-sm text-sky-800 flex items-center gap-2"><Eye className="w-4 h-4 shrink-0" /> You're viewing payments made to {currentBucket?.payeeName ? <strong>{currentBucket.payeeName}</strong> : "you"} in this bucket.</p>
               </Card>
             )}
-            {tab !== "settings" && canEdit && <QuickAdd categories={categories} people={people} payees={payees} defaultPaidBy={myName} onAdd={addExpense} />}
+            {tab !== "settings" && canEdit && <QuickAdd categories={categories} people={people} payees={payees} defaultPaidBy={myName} bucketId={selectedId} onAdd={addExpense} />}
             {/* Dashboard & Transactions stay mounted and are toggled with `hidden`,
                 so switching tabs preserves the month selector, filters, pagination and scroll. */}
             {!isPayee && <div className={tab === "dashboard" ? "" : "hidden"}><Dashboard expenses={expenses} categories={categories} myName={myName} budgets={budgets} onSetBudget={setMonthBudget} canEdit={canEdit} bucketId={selectedId} /></div>}
@@ -460,7 +477,7 @@ export default function App() {
                 payees={payees} setPayees={setPayees}
                 expenses={expenses} bucketName={currentBucket?.name || "this bucket"} bucketId={selectedId} isPayee={isPayee} myName={myName}
                 displayName={myName} onChangeName={changeName} userEmail={user.email} userId={user.id}
-                onExport={exportData} onImport={importData} onClearBucket={clearBucket} onMergePeople={mergePeople} onMergePayees={mergePayees} isOwner={isOwner} canEdit={canEdit} onSignOut={signOut}
+                onExport={exportData} onImport={importData} onClearBucket={clearBucket} onMergePeople={mergePeople} onMergePayees={mergePayees} onDeleteCategory={deleteCategory} isOwner={isOwner} canEdit={canEdit} onSignOut={signOut}
               />
             )}
           </>

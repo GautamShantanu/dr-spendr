@@ -31,6 +31,20 @@ export function AuthScreen() {
     } finally { setBusy(false); }
   };
 
+  const forgotPassword = async () => {
+    const e = email.trim().toLowerCase();
+    setErr(""); setInfo("");
+    if (!e || !e.includes("@")) { setErr("Enter your email above first, then tap “Forgot password”."); return; }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(e, { redirectTo: window.location.origin });
+      if (error) throw error;
+      setInfo(`Password reset link sent to ${e}. Open it on this device to set a new password.`);
+    } catch (err) {
+      setErr(err.message || "Couldn't send the reset email.");
+    } finally { setBusy(false); }
+  };
+
   const google = async () => {
     setErr(""); setBusy(true);
     try {
@@ -85,6 +99,12 @@ export function AuthScreen() {
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               {mode === "signin" ? "Sign in" : "Create account"}
             </button>
+
+            {mode === "signin" && (
+              <button onClick={forgotPassword} disabled={busy} className="w-full text-xs text-slate-500 hover:text-slate-800 -mt-0.5">
+                Forgot password?
+              </button>
+            )}
 
             <div className="flex items-center gap-3 py-1">
               <div className="flex-1 h-px bg-slate-200" />
