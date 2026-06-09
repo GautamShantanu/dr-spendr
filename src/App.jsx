@@ -212,13 +212,14 @@ export default function App() {
     await addNames({ payers: [e.paidBy], payees: [e.paidTo] });
     const row = { bucket_id: selectedId, user_id: user.id, amount: e.amount, category: e.category, description: e.description, date: e.date, method: e.method, paid_by: e.paidBy, paid_to: e.paidTo || "", split: e.split || null };
     const { data, error } = await supabase.from("expenses").insert(row).select().single();
-    if (error) { flash("Couldn't save expense."); console.error(error); return; }
+    if (error) { flash("Couldn't save — check your connection and try again."); console.error(error); return false; }
     let attachments = [];
     if (files.length) {
       attachments = await uploadPhotos(selectedId, data.id, files.slice(0, MAX_PHOTOS));
       if (attachments.length) await supabase.from("expenses").update({ attachments }).eq("id", data.id);
     }
     setExpenses((prev) => [rowToExpense({ ...data, attachments }), ...prev]);
+    return true;
   };
   const updateExpense = async (u, newFiles = [], removedPaths = []) => {
     await addNames({ payers: [u.paidBy], payees: [u.paidTo] });

@@ -32,8 +32,9 @@ export function QuickAdd({ categories, people, payees, defaultPaidBy, onAdd }) {
       split = res.split;
     }
     setErr(""); setBusy(true);
-    await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy, paidTo: f.paidTo.trim(), split }, photos.map((p) => p.blob));
+    const ok = await onAdd({ amount: amt, category: f.category, description: f.description.trim(), date: f.date, method: f.method, paidBy: (f.paidBy || defaultPaidBy).trim() || defaultPaidBy, paidTo: f.paidTo.trim(), split }, photos.map((p) => p.blob));
     setBusy(false);
+    if (ok === false) { setErr("Couldn't save — your entry is kept. Check your connection and tap Add again."); return; }
     photos.forEach((p) => URL.revokeObjectURL(p.url));
     setPhotos([]); setSplitOn(false); setShares({});
     setF({ ...blank, category: f.category, paidBy: f.paidBy });
